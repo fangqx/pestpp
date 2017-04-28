@@ -68,7 +68,9 @@ public:
 	Transformable& operator+=(const Transformable &rhs);
 	Transformable& operator-=(const Transformable &rhs);
 	Transformable& operator*=(double scale);
+	Transformable operator*(double scale) const;
 	Transformable operator-(const Transformable &rhs) const;
+	Transformable operator+(const Transformable &rhs) const;
 	double &operator[](const string &name);
 	pair<iterator,bool> insert(const string &name, double value);
 	pair<iterator, bool> insert(const pair<string, double> &x);
@@ -90,7 +92,7 @@ public:
 	const_iterator find(const string &name) const;
 	size_t size() const {return items.size();}
 	void clear() {items.clear();}
-
+	vector<string> get_notnormal_keys();
 	vector<string> get_keys() const;
 	vector<double> get_data_vec(const vector<string> &keys) const;
 	Eigen::VectorXd get_data_eigen_vec(const vector<string> &keys) const;

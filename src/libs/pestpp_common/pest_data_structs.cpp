@@ -279,12 +279,29 @@ ostream& operator<< (ostream &os, const PestppOptions& val)
 	os << "    mat inv = " << left << setw(20) << val.get_mat_inv() << endl;
 	os << "    max run fail = " << left << setw(20) << val.get_max_run_fail() << endl;
 	os << "    max reg iter = " << left << setw(20) << val.get_max_reg_iter() << endl;	
+	os << "    use jacobian scaling a la PEST? = ";
+	if (val.get_jac_scale())
+		os << " yes" << endl;
+	else
+		os << " no" << endl;
 	if (val.get_reg_frac() > 0.0)
 		os << "    regularization fraction of total phi = " << left << setw(10) << val.get_reg_frac() << endl;
 	os << "    lambdas = " << endl;
 	for (auto &lam : val.get_base_lambda_vec())
 	{
 		os << right << setw(15) << lam << endl;
+	}
+	os << "    lambda scaling factors = " << endl;
+	for (auto &ls : val.get_lambda_scale_vec())
+		os << right << setw(15) << ls << endl;
+
+	if (!val.get_basejac_filename().empty())
+	{
+		os << "   restarting with existing jacobian matrix file: " << val.get_basejac_filename() << endl;
+		if (!val.get_hotstart_resfile().empty())
+		{
+			os << "   and using existing residual file " << val.get_hotstart_resfile() << " to forego initial model run" << endl;
+		}
 	}
 	if (val.get_uncert_flag())
 	{
@@ -324,6 +341,7 @@ PestppOptions::PestppOptions(int _n_iter_base, int _n_iter_super, int _max_n_sup
 	: n_iter_base(_n_iter_base), n_iter_super(_n_iter_super), max_n_super(_max_n_super), super_eigthres(_super_eigthres), 
 	svd_pack(_svd_pack), mat_inv(_mat_inv), auto_norm(_auto_norm), super_relparmax(_super_relparmax),
 	max_run_fail(_max_run_fail), max_super_frz_iter(50), max_reg_iter(50), base_lambda_vec({ 0.1, 1.0, 10.0, 100.0, 1000.0 }),
+	lambda_scale_vec({0.9, 0.8, 0.7, 0.5}),
 	iter_summary_flag(_iter_summary_flag), der_forgive(_der_forgive), overdue_reched_fac(_overdue_reched_fac),
 	overdue_giveup_fac(_overdue_giveup_fac), reg_frac(_reg_frac), global_opt(_global_opt),
 	de_f(_de_f), de_cr(_de_cr), de_npopulation(_de_npopulation), de_max_gen(_de_max_gen), de_dither_f(_de_dither_f)
@@ -345,13 +363,15 @@ void PestppOptions::parce_line(const string &line)
 	}
 	string tmp_line = line.substr(0, found);
 	strip_ip(tmp_line, "both", "\t\n\r+ ");
-	upper_ip(tmp_line);
+	//upper_ip(tmp_line);
 
 
 	for (std::sregex_iterator i(tmp_line.begin(), tmp_line.end(), lambda_reg); i != end_reg; ++i)
 	{
 		string key = (*i)[1];
-		string value = (*i)[2];
+		string org_value = (*i)[2];
+		upper_ip(key);
+		string value = upper_cp(org_value);
 
 		if (key=="MAX_N_SUPER"){
 			convert_ip(value, max_n_super); 
@@ -405,7 +425,17 @@ void PestppOptions::parce_line(const string &line)
 			{
 				base_lambda_vec.push_back(convert_cp<double>(ilambda));
 			}
-		}		
+		}	
+		else if (key == "LAMBDA_SCALE_FAC")
+		{
+			lambda_scale_vec.clear();
+			vector<string> scale_tok;
+			tokenize(value, scale_tok, ",");
+			for (const auto &iscale : scale_tok)
+			{
+				lambda_scale_vec.push_back(convert_cp<double>(iscale));
+			}
+		}
 		else if (key == "ITERATION_SUMMARY")
 		{
 			transform(value.begin(), value.end(), value.begin(), ::tolower);
@@ -437,12 +467,17 @@ void PestppOptions::parce_line(const string &line)
 		else if ((key == "PARCOV") || (key == "PARAMETER_COVARIANCE") 
 			|| (key == "PARCOV_FILENAME"))
 		{
-			convert_ip(value, parcov_filename);
+			convert_ip(org_value, parcov_filename);
 		}
 
 		else if ((key == "BASE_JACOBIAN") || (key == "BASE_JACOBIAN_FILENAME"))
 		{
-			convert_ip(value, basejac_filename);
+			convert_ip(org_value, basejac_filename);
+		}
+
+		else if (key == "HOTSTART_RESFILE")
+		{
+			convert_ip(org_value, hotstart_resfile);
 		}
 
 		else if (key == "OVERDUE_RESCHED_FAC"){
@@ -452,10 +487,10 @@ void PestppOptions::parce_line(const string &line)
 			convert_ip(value, overdue_giveup_fac);
 		}
 		else if (key == "SWEEP_PARAMETER_CSV_FILE")
-			convert_ip(value, sweep_parameter_csv_file);
+			convert_ip(org_value, sweep_parameter_csv_file);
 		
 		else if (key == "SWEEP_OUTPUT_CSV_FILE")
-			convert_ip(value, sweep_output_csv_file);
+			convert_ip(org_value, sweep_output_csv_file);
 		else if (key == "SWEEP_CHUNK")
 			convert_ip(value, sweep_chunk);
 		else if (key == "SWEEP_FORGIVE")
@@ -484,7 +519,32 @@ void PestppOptions::parce_line(const string &line)
 		{
 			convert_ip(value, parcov_scale_fac);
 		}
+		else if (key == "JAC_SCALE")
+		{
+			transform(value.begin(), value.end(), value.begin(), ::tolower);
+			istringstream is(value);
+			is >> boolalpha >> jac_scale;
 
+		}
+
+		else if (key == "UPGRADE_AUGMENT")
+		{
+			transform(value.begin(), value.end(), value.begin(), ::tolower);
+			istringstream is(value);
+			is >> boolalpha >> upgrade_augment;
+
+		}
+
+		else if (key == "UPGRADE_BOUNDS")
+		{
+			if (value == "ROBUST")
+				convert_ip(value, upgrade_bounds);
+			else if (value == "CHEAP")
+				convert_ip(value, upgrade_bounds);
+			else
+				throw runtime_error("unrecognozed 'upgrade_bounds' option: should 'robust' or 'cheap'");
+			
+		}
 
 		else if (key == "GLOBAL_OPT")
 		{
@@ -522,7 +582,13 @@ void PestppOptions::parce_line(const string &line)
 			istringstream is(value);
 			is >> boolalpha >> opt_coin_log;
 		}
-	
+		else if (key == "OPT_SKIP_FINAL")
+		{
+			transform(value.begin(), value.end(), value.begin(), ::tolower);
+			istringstream is(value);
+			is >> boolalpha >> opt_skip_final;
+		}
+
 		else if ((key == "OPT_DEC_VAR_GROUPS") || (key == "OPT_DECISION_VARIABLE_GROUPS"))
 		{
 			opt_dec_var_groups.clear();

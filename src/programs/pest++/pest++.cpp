@@ -352,7 +352,7 @@ int main(int argc, char* argv[])
 		const ParamTransformSeq &base_trans_seq = pest_scenario.get_base_par_tran_seq();
 
 		ObjectiveFunc obj_func(&(pest_scenario.get_ctl_observations()), &(pest_scenario.get_ctl_observation_info()), &(pest_scenario.get_prior_info()));
-		Jacobian *base_jacobian_ptr = new Jacobian_1to1(file_manager);
+		Jacobian *base_jacobian_ptr = new Jacobian_1to1(file_manager,output_file_writer);
 
 		TerminationController termination_ctl(pest_scenario.get_control_info().noptmax, pest_scenario.get_control_info().phiredstp,
 			pest_scenario.get_control_info().nphistp, pest_scenario.get_control_info().nphinored, pest_scenario.get_control_info().relparstp,
@@ -549,9 +549,11 @@ int main(int argc, char* argv[])
 				else if (restart_ctl.get_restart_option() == RestartController::RestartOption::REUSE_JACOBIAN)
 				{
 					bool calc_first_jacobian = false;
-					string filename = pest_scenario.get_pestpp_options().get_basejac_filename();
-					filename = ((filename.empty()) ? file_manager.build_filename("jco") : filename);
-					cur_run = base_svd.iteration_reuse_jac(*run_manager_ptr, termination_ctl, cur_run, true, filename);
+					string jco_filename = pest_scenario.get_pestpp_options().get_basejac_filename();
+					jco_filename = ((jco_filename.empty()) ? file_manager.build_filename("jco") : jco_filename);
+					string res_filename = pest_scenario.get_pestpp_options().get_hotstart_resfile();
+
+					cur_run = base_svd.iteration_reuse_jac(*run_manager_ptr, termination_ctl, cur_run, true, jco_filename,res_filename);
 					// Run the model once with the current parameters to compute the observations
 					cur_run = base_svd.solve(*run_manager_ptr, termination_ctl, n_base_iter, cur_run, optimum_run, restart_ctl, calc_first_jacobian);
 					termination_ctl.check_last_iteration();

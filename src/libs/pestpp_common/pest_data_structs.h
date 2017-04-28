@@ -220,6 +220,7 @@ public:
 	int get_max_super_frz_iter()const { return max_super_frz_iter; }
 	int get_max_reg_iter()const { return max_reg_iter; }
 	const vector<double>& get_base_lambda_vec() const {return base_lambda_vec;}	
+	const vector<double>& get_lambda_scale_vec() const { return lambda_scale_vec; }
 	bool get_iter_summary_flag() const { return iter_summary_flag;  }
 	bool get_der_forgive() const { return der_forgive; }
 	GLOBAL_OPT get_global_opt() const { return global_opt;}
@@ -268,10 +269,26 @@ public:
 	//void set_use_parcov_scaling(bool _scale) { use_parcov_scaling = _scale; }
 	double get_parcov_scale_fac() const { return parcov_scale_fac; }
 	void set_parcov_scale_fac(double _fac) { parcov_scale_fac = _fac; }
+	bool get_jac_scale()const { return jac_scale; }
+	void set_jac_scale(bool _jac_scale) { jac_scale = _jac_scale; }
+
+	bool get_upgrade_augment()const { return upgrade_augment; }
+	void set_upgrade_augment(bool _upgrade_augment) { upgrade_augment = _upgrade_augment; }
+
+	void set_hotstart_resfile(string _res_file) { hotstart_resfile = _res_file; }
+	string get_hotstart_resfile() const  { return hotstart_resfile; }
+	
+	void set_upgrade_bounds(string _upgrade_bounds) { upgrade_bounds = _upgrade_bounds; }
+	string get_upgrade_bounds() const { return upgrade_bounds; }
+
+
 	string get_opt_obj_func()const  { return opt_obj_func; }
 	void set_opt_obj_func(string _opt_obj_func) { opt_obj_func = _opt_obj_func; }
 	bool get_opt_coin_log()const { return opt_coin_log; }
 	void set_opt_coin_log(bool _log) { opt_coin_log = _log; }
+	bool get_opt_skip_final()const { return opt_skip_final; }
+	void set_opt_skip_final(bool _skip_final) { opt_skip_final = _skip_final; }
+
 	vector<string> get_opt_dec_var_groups()const { return opt_dec_var_groups; }
 	void set_opt_dec_var_groups(vector<string> _grps) { opt_dec_var_groups = _grps; }
 	vector<string> get_opt_ext_var_groups()const { return opt_external_var_groups; }
@@ -301,6 +318,7 @@ private:
 	int max_super_frz_iter;
 	int max_reg_iter;
 	vector<double> base_lambda_vec;	
+	vector<double> lambda_scale_vec;
 	bool iter_summary_flag;
 	bool der_forgive;
 	bool uncert;
@@ -318,6 +336,11 @@ private:
 	bool sweep_base_run;
 	//bool use_parcov_scaling;
 	double parcov_scale_fac;
+	bool jac_scale;
+	bool upgrade_augment;
+	string upgrade_bounds;
+	string hotstart_resfile;
+
 	GLOBAL_OPT global_opt;
 	double de_f;
 	double de_cr;
@@ -327,6 +350,7 @@ private:
 
 	string opt_obj_func;
 	bool opt_coin_log;
+	bool opt_skip_final;
 	vector<string> opt_dec_var_groups;
 	vector<string> opt_external_var_groups;
 	vector<string> opt_constraint_groups;
@@ -334,6 +358,7 @@ private:
 	double opt_direction;
 	double opt_iter_tol;
 	int opt_recalc_fosm_every;
+
 
 };
 ostream& operator<< (ostream &os, const PestppOptions& val);
