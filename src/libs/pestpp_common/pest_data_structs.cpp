@@ -94,6 +94,17 @@ const ParameterGroupRec* ParameterGroupInfo::get_group_rec_ptr(const string &nam
 	return ret_val;
 }
 
+ParameterGroupRec* ParameterGroupInfo::get_group_rec_ptr_4_mod(const string &name)
+{
+	ParameterGroupRec *ret_val = 0;
+	unordered_map<string, ParameterGroupRec*>::const_iterator g_iter;
+
+	g_iter = parameter2group.find(name);
+	if (g_iter != parameter2group.end()) {
+		ret_val = (*g_iter).second;
+	}
+	return ret_val;
+}
 
 string ParameterGroupInfo::get_group_name(const string &par_name) const
 {
@@ -486,6 +497,10 @@ void PestppOptions::parce_line(const string &line)
 		else if (key == "OVERDUE_GIVEUP_FAC"){
 			convert_ip(value, overdue_giveup_fac);
 		}
+		else if (key == "CONDOR_SUBMIT_FILE")
+		{
+			convert_ip(value, condor_submit_file);
+		}
 		else if (key == "SWEEP_PARAMETER_CSV_FILE")
 			convert_ip(org_value, sweep_parameter_csv_file);
 		
@@ -627,6 +642,11 @@ void PestppOptions::parce_line(const string &line)
 			convert_ip(value, opt_risk);
 		}
 
+		else if (key == "OPT_ITER_DERINC_FAC")
+		{
+			convert_ip(value, opt_iter_derinc_fac);
+		}
+
 		else if (key == "OPT_DIRECTION")
 		{
 			string v;
@@ -648,9 +668,45 @@ void PestppOptions::parce_line(const string &line)
 		{
 			convert_ip(value, opt_recalc_fosm_every);
 		}
-
+		else if ((key == "IES_PAR_CSV") || (key == "IES_PARAMETER_CSV"))
+		{
+			convert_ip(value, ies_par_csv);
+		}
+		else if ((key == "IES_OBS_CSV") || (key == "IES_OBSERVATION_CSV"))
+		{
+			convert_ip(value, ies_obs_csv);
+		}
+		else if ((key == "IES_OBS_RESTART_CSV") || (key == "IES_OBSERVATION_RESTART_CSV"))
+		{
+			transform(value.begin(), value.end(), value.begin(), ::tolower);
+			istringstream is(value);
+			is >> boolalpha >> ies_use_approx;
+		}
+		else if (key == "IES_LAMBDA_MULTS")
+		{
+			ies_lam_mults.clear();
+			vector<string> tok;
+			tokenize(value, tok, ",");
+			for (const auto &iscale : tok)
+			{
+				ies_lam_mults.push_back(convert_cp<double>(iscale));
+			}
+		}
+		else if ((key == "IES_INIT_LAM") || (key == "IES_INITIAL_LAMBDA"))
+		{
+			convert_ip(value, ies_init_lam);
+		}
+		else if (key == "IES_USE_APPROX") 
+		{
+			convert_ip(value, ies_obs_restart_csv);
+		}
+		else if (key == "IES_SUBSET_SIZE")
+		{
+			convert_ip(value, ies_subset_size);
+		}
 
 		else {
+
 			throw PestParsingError(line, "Invalid key word \"" + key +"\"");
 		}
 	}
