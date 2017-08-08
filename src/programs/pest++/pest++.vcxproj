@@ -120,11 +120,7 @@
     <LibraryPath>$(LibraryPath)</LibraryPath>
     <IncludePath>$(VC_IncludePath);$(WindowsSDK_IncludePath);</IncludePath>
     <OutDir>$(SolutionDir)\..\exe\windows\$(Platform)\$(Configuration)\</OutDir>
-<<<<<<< HEAD
-    <TargetName>i$(ProjectName)</TargetName>
-=======
-    <TargetName>pestpp</TargetName>
->>>>>>> origin/develop
+    <TargetName>ipestpp</TargetName>
   </PropertyGroup>
   <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='debug2_dll|x64'">
     <LinkIncremental>false</LinkIncremental>
@@ -143,11 +139,7 @@
     <LibraryPath>$(LibraryPath)</LibraryPath>
     <IncludePath>C:\Program Files (x86)\Visual Leak Detector\include;$(IncludePath)</IncludePath>
     <OutDir>$(SolutionDir)\..\exe\windows\$(Platform)\$(Configuration)\</OutDir>
-<<<<<<< HEAD
-    <TargetName>i$(ProjectName)</TargetName>
-=======
-    <TargetName>pestpp</TargetName>
->>>>>>> origin/develop
+    <TargetName>ipestpp</TargetName>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
