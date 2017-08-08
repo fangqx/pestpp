@@ -501,10 +501,9 @@ void PestppOptions::parce_line(const string &line)
 		{
 			convert_ip(value, condor_submit_file);
 		}
-		else if (key == "SWEEP_PARAMETER_CSV_FILE")
-			convert_ip(org_value, sweep_parameter_csv_file);
-		
-		else if (key == "SWEEP_OUTPUT_CSV_FILE")
+		else if ((key == "SWEEP_PARAMETER_CSV_FILE") || (key == "SWEEP_PAR_CSV"))
+			convert_ip(org_value, sweep_parameter_csv_file);	
+		else if ((key == "SWEEP_OUTPUT_CSV_FILE") || (key == "SWEEP_OBS_CSV"))
 			convert_ip(org_value, sweep_output_csv_file);
 		else if (key == "SWEEP_CHUNK")
 			convert_ip(value, sweep_chunk);
@@ -677,6 +676,11 @@ void PestppOptions::parce_line(const string &line)
 			convert_ip(value, ies_obs_csv);
 		}
 		else if ((key == "IES_OBS_RESTART_CSV") || (key == "IES_OBSERVATION_RESTART_CSV"))
+		{
+			convert_ip(value, ies_obs_restart_csv);
+		}
+
+		else if ((key == "IES_USE_APPROXIMATE_SOLUTION") || (key == "IES_USE_APPROX"))
 		{
 			transform(value.begin(), value.end(), value.begin(), ::tolower);
 			istringstream is(value);
