@@ -12,6 +12,7 @@
 #include "RunStorage.h"
 #include "covariance.h"
 #include "RunManagerAbstract.h"
+#include "PerformanceLog.h"
 
 
 
@@ -38,7 +39,7 @@ public:
 
 	void add_to_cols(Eigen::MatrixXd &_reals, const vector<string> &_var_names);
 
-	
+	void reserve(vector<string> _real_names, vector<string> _var_names);
 
 	Eigen::VectorXd get_real_vector(int ireal);
 	Eigen::VectorXd get_real_vector(const string &real_name);
@@ -51,8 +52,11 @@ public:
 	Eigen::MatrixXd get_eigen_mean_diff();
 	Eigen::MatrixXd get_eigen_mean_diff(const vector<string> &_real_names, const vector<string> &_var_names);
 	
+	vector<double> get_mean_stl_vector();
+	
 	void append_other_rows(Ensemble &other);
-	void append(string real_name, Transformable &trans);
+	void append(string real_name, const Transformable &trans);
+	
 	Covariance get_diagonal_cov_matrix();
 
 	void reorder(vector<string> &_real_names, vector<string> &_var_names);
@@ -66,7 +70,7 @@ public:
 	void set_pest_scenario(Pest *_pest_scenario) { pest_scenario_ptr = _pest_scenario; }
 	void set_real_names(vector<string> &_real_names);
 
-	void draw(int num_reals, Covariance &cov, Transformable &tran, const vector<string> &draw_names);
+	void draw(int num_reals, Covariance &cov, Transformable &tran, const vector<string> &draw_names, PerformanceLog *plog, int level);
 	~Ensemble();
 protected:
 	Pest* pest_scenario_ptr;
@@ -113,9 +117,9 @@ public:
 	void set_pest_scenario(Pest *_pest_scenario);
 	map<int,int> add_runs(RunManagerAbstract *run_mgr_ptr,vector<int> &real_idxs=vector<int>());
 
-	void draw(int num_reals, Covariance &cov);
+	void draw(int num_reals, Covariance &cov, PerformanceLog *plog, int level);
 	Covariance get_diagonal_cov_matrix();
-	//ParameterEnsemble get_mean_diff();
+
 private:
 	ParamTransformSeq par_transform;
 	transStatus tstat;
@@ -136,7 +140,7 @@ public:
 	void from_eigen_mat(Eigen::MatrixXd mat, const vector<string> &_real_names, const vector<string> &_var_names);
 	void from_binary(string &file_name);// { Ensemble::from_binary(file_name, true); }
 	vector<int> update_from_runs(map<int,int> &real_run_ids, RunManagerAbstract *run_mgr_ptr);
-	void draw(int num_reals, Covariance &cov);
+	void draw(int num_reals, Covariance &cov, PerformanceLog *plog, int level);
 
 	//ObservationEnsemble get_mean_diff();
 };

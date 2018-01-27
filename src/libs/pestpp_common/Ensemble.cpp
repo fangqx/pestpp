@@ -9,6 +9,7 @@
 #include "ObjectiveFunc.h"
 #include "RedSVD-h.h"
 #include "covariance.h"
+#include "PerformanceLog.h"
 
 mt19937_64 Ensemble::rand_engine = mt19937_64(1);
 
@@ -18,9 +19,14 @@ Ensemble::Ensemble(Pest *_pest_scenario_ptr): pest_scenario_ptr(_pest_scenario_p
 	rand_engine.seed(1123433458);
 }
 
+void Ensemble::reserve(vector<string> _real_names, vector<string> _var_names)
+{
+	reals.resize(_real_names.size(), _var_names.size());
+	var_names = _var_names;
+	real_names = _real_names;
+}
 
-
-void Ensemble::draw(int num_reals, Covariance &cov, Transformable &tran, const vector<string> &draw_names)
+void Ensemble::draw(int num_reals, Covariance &cov, Transformable &tran, const vector<string> &draw_names, PerformanceLog *plog, int level)
 {
 	//draw names should be "active" var_names (nonzero weight obs and not fixed/tied pars)
 	//just a quick sanity check...
@@ -36,15 +42,20 @@ void Ensemble::draw(int num_reals, Covariance &cov, Transformable &tran, const v
 		cov = cov.get(draw_names);
 
 	//make standard normal draws
+	plog->log_event("making standard normal draws");
 	RedSVD::sample_gaussian(draws);
+	if (level > 2)
+	{ 
+		ofstream f("standard_normal_draws.dat");
+		f << draws << endl;
+		f.close();
+	}
 	
-	ofstream f("draws.dat");
-	f << draws << endl;
-	f.close();
 
 	//if diagonal cov, then scale by variance
 	if (cov.isdiagonal())
 	{
+		plog->log_event("scaling by variance");
 		Eigen::VectorXd std = cov.e_ptr()->diagonal().cwiseSqrt();
 
 		for (int j = 0; j < draw_names.size(); j++)
@@ -56,41 +67,31 @@ void Ensemble::draw(int num_reals, Covariance &cov, Transformable &tran, const v
 	//if not diagonal, eigen decomp of cov then project the standard normal draws
 	else
 	{
-		//jwhite 25jan2018: the RedSVD eig solve was giving weird results so back to Eigen
-		//totally arbitrary hack - use a max of 100 eigen components 
-		//int ncomps = std::min<int>(100,draw_names.size());
-		//RedSVD::RedSymEigen<Eigen::MatrixXd> eig;
-		//symmetric eigen solve...
-		//eig.compute(cov.e_ptr()->toDense(),ncomps);
-		/*RedSVD::RedSVD<Eigen::MatrixXd> svd;
-		svd.compute(cov.e_ptr()->toDense(), draw_names.size());
-		*/
-		//tile out the reduced (100 compoents) solution to a full draw_names size
-		/*Eigen::MatrixXd evec(draw_names.size(), draw_names.size());
-		evec.setZero();
-		evec.leftCols(ncomps) = eig.eigenvectors();
-		Eigen::VectorXd eval(draw_names.size());
-		eval.setZero();
-		eval.topRows(ncomps) = eig.eigenvalues().cwiseSqrt();*/
-
-		//form the projection matrix
-		//Eigen::MatrixXd proj = evec * eval.asDiagonal();
-
-
-		Eigen::EigenSolver<Eigen::MatrixXd> eig(cov.e_ptr()->toDense());		
-		Eigen::MatrixXd evecs = eig.eigenvectors().real();
-		Eigen::MatrixXd evals = eig.eigenvalues().real().cwiseSqrt().asDiagonal();
+		int ncomps = draw_names.size();
+		stringstream ss;
+		ss << "SVD of full cov using " << ncomps << " components";
+		plog->log_event(ss.str());
+		RedSVD::RedSVD<Eigen::SparseMatrix<double>> svd;
+		svd.compute(*cov.e_ptr(),ncomps);
+		Eigen::MatrixXd evals = svd.singularValues().cwiseSqrt().asDiagonal();
+		plog->log_event("forming projection matrix");
+		Eigen::MatrixXd proj = svd.matrixU() * evals;
 		
 		//for debugging
-		/*ofstream f("evals.dat");
-		f << evals << endl;
-		f.close();
-		f.open("evecs.dat");
-		f << evecs << endl;
-		f.close();*/
-		Eigen::MatrixXd proj = evecs * evals;
-		
+		if (level > 2)
+		{
+			ofstream f("cov_eigenvectors.dat");
+			f << evals << endl;
+			f.close();
+			f.open("cov_eigenvalues.dat");
+			f << svd.matrixU() << endl;
+			f.close();
+			f.open("cov_projection_matrix.dat");
+			f << proj << endl;
+			f.close();
+		}
 		//project each standard normal draw in place
+		plog->log_event("projecting realizations");
 		for (int i = 0; i < num_reals; i++)
 		{
 			draws.row(i) = proj * draws.row(i).transpose();
@@ -108,17 +109,27 @@ void Ensemble::draw(int num_reals, Covariance &cov, Transformable &tran, const v
 	}
 	
 	//add the mean values - using the Transformable instance (initial par value or observed value)
+	plog->log_event("resizing reals matrix");
 	reals.resize(num_reals, var_names.size());
 	reals.setZero(); // zero-weighted obs and fixed/tied pars get zero values here.
+	plog->log_event("filling reals matrix and adding mean values");
 	vector<string>::const_iterator start = draw_names.begin(), end=draw_names.end(), name;
+	set<string> dset(draw_names.begin(), draw_names.end());
+	map<string, int> dmap;
+	for (int i = 0; i < draw_names.size(); i++)
+		dmap[draw_names[i]] = i;
 	for (int j = 0; j < var_names.size(); j++)
 	{
-		int jj;
-		name = find(start, end, var_names[j]);
-		if (name != end)
+		//int jj;
+		//name = find(start, end, var_names[j]);
+		//if (name != end)
+		//{
+		//	jj = name - start;
+		//	reals.col(j) = draws.col(jj).array() + tran.get_rec(var_names[j]);
+		//}
+		if (dset.find(var_names[j]) != dset.end())
 		{
-			jj = name - start;
-			reals.col(j) = draws.col(jj).array() + tran.get_rec(var_names[j]);
+			reals.col(j) = draws.col(dmap[var_names[j]]).array() + tran.get_rec(var_names[j]);
 		}
 	}
 }
@@ -137,6 +148,14 @@ Covariance Ensemble::get_diagonal_cov_matrix()
 	{
 		//calc variance for this var_name
 		var = (reals.col(j).cwiseProduct(reals.col(j))).sum() / num_reals;
+		//if (var == 0.0)
+		if (var <=1.0e-30)
+		{
+			stringstream ss;
+			ss << "invalid variance for ensemble variable: " << var_names[j] << ": " << var;
+			throw_ensemble_error(ss.str());
+			
+		}
 		triplets.push_back(Eigen::Triplet<double>(j, j, var));
 	}
 
@@ -175,6 +194,24 @@ Eigen::MatrixXd Ensemble::get_eigen_mean_diff(const vector<string> &_real_names,
 	return _reals;
 }
 
+vector<double> Ensemble::get_mean_stl_vector()
+{
+	vector<double> mean_vec;
+	mean_vec.reserve(var_names.size());
+	for (int j = 0; j < reals.cols(); j++)
+	{
+		mean_vec.push_back(reals.col(j).mean());	
+	}
+	return mean_vec;
+
+}
+
+//Ensemble Ensemble::get_mean()
+//{
+//	Ensemble new_en(pest_scenario_ptr);
+//	new_en.app
+//
+//}
 
 void Ensemble::from_eigen_mat(Eigen::MatrixXd _reals, const vector<string> &_real_names, const vector<string> &_var_names)
 {
@@ -570,7 +607,7 @@ void Ensemble::append_other_rows(Ensemble &other)
 	real_names = new_real_names;
 }
 
-void Ensemble::append(string real_name, Transformable &trans)
+void Ensemble::append(string real_name, const Transformable &trans)
 {
 	stringstream ss;
 	//make sure this real_name isn't ready used
@@ -758,14 +795,14 @@ ParameterEnsemble::ParameterEnsemble(Pest *_pest_scenario_ptr):Ensemble(_pest_sc
 	par_transform = pest_scenario_ptr->get_base_par_tran_seq();
 }
 
-void ParameterEnsemble::draw(int num_reals, Covariance &cov)
+void ParameterEnsemble::draw(int num_reals, Covariance &cov, PerformanceLog *plog, int level)
 {
 	///draw a parameter ensemble
 	var_names = pest_scenario_ptr->get_ctl_ordered_adj_par_names(); //only draw for adjustable pars
 	Parameters par = pest_scenario_ptr->get_ctl_parameters();
 	par_transform.active_ctl2numeric_ip(par);//removes fixed/tied pars
 	tstat = transStatus::NUM;
-	Ensemble::draw(num_reals, cov, par, var_names);
+	Ensemble::draw(num_reals, cov, par, var_names, plog, level);
 	enforce_bounds();
 	
 }
@@ -956,12 +993,12 @@ ObservationEnsemble::ObservationEnsemble(Pest *_pest_scenario_ptr): Ensemble(_pe
 {
 }
 
-void ObservationEnsemble::draw(int num_reals, Covariance &cov)
+void ObservationEnsemble::draw(int num_reals, Covariance &cov, PerformanceLog *plog, int level)
 {
 	//draw an obs ensemble using only nz obs names
 	var_names = pest_scenario_ptr->get_ctl_ordered_obs_names();
 	Observations obs = pest_scenario_ptr->get_ctl_observations();
-	Ensemble::draw(num_reals, cov, obs, pest_scenario_ptr->get_ctl_ordered_nz_obs_names());
+	Ensemble::draw(num_reals, cov, obs, pest_scenario_ptr->get_ctl_ordered_nz_obs_names(), plog, level);
 }
 
 void ObservationEnsemble::update_from_obs(int row_idx, Observations &obs)
