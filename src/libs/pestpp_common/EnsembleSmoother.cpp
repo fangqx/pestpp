@@ -147,6 +147,8 @@ double PhiHandler::get_std(phiType pt)
 	map<string, double>::iterator pi = phi_map->begin(), end = phi_map->end();
 	for (pi; pi != end; ++pi)
 		var = var + (pow(pi->second - mean,2));
+	if (var == 0.0)
+		return 0.0;
 	return sqrt(var/(phi_map->size()-1));
 }
 
@@ -563,7 +565,7 @@ void IterEnsembleSmoother::initialize_oe(Covariance &cov)
 		message(1, "drawing observation noise realizations: ", num_reals);
 		oe.draw(num_reals, cov, performance_log, pest_scenario.get_pestpp_options().get_ies_verbose_level());
 		stringstream ss;
-		ss << file_manager.get_base_filename() << ".0.obs.csv";
+		ss << file_manager.get_base_filename() << ".base.obs.csv";
 		message(1, "saving initial observation ensemble to ", ss.str());
 		oe.to_csv(ss.str());
 	}
@@ -955,7 +957,12 @@ void IterEnsembleSmoother::initialize()
 	{
 		performance_log->log_event("running initial ensemble");
 		message(0, "running initial ensemble of size", oe.shape().first);
-		run_ensemble(pe, oe);
+		vector<int> failed = run_ensemble(pe, oe);
+		if (pe.shape().first == 0)
+			throw_ies_error("all realizations failed during initial evaluation");
+		string obs_csv = file_manager.get_base_filename() + ".0.obs.csv";
+		message(1, "saving results of initial ensemble run to", obs_csv);
+		oe.to_csv(obs_csv);
 		pe.transform_ip(ParameterEnsemble::transStatus::NUM);
 	}
 	else
