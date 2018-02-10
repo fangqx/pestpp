@@ -751,6 +751,10 @@ void IterEnsembleSmoother::initialize()
 	message(0, "initializing");
 	
 	verbose_level = pest_scenario.get_pestpp_options_ptr()->get_ies_verbose_level();
+	if (pest_scenario.get_n_adj_par() > 1e6)
+	{
+		message(0, "welcome to the 1M par club, great choice!");
+	}
 	iter = 0;
 	//ofstream &frec = file_manager.rec_ofstream();
 	last_best_mean = 1.0E+30;
@@ -816,8 +820,17 @@ void IterEnsembleSmoother::initialize()
 
 	if (pest_scenario.get_pestpp_options().get_ies_use_prior_scaling())
 	{
-		message(0, "forming inverse sqrt of prior parameter covariance matrix");
-		parcov_inv_sqrt = parcov.inv(echo).get_matrix().diagonal().cwiseSqrt().asDiagonal();
+		message(1, "forming inverse sqrt of prior parameter covariance matrix");
+		
+		if (parcov.isdiagonal())
+			parcov_inv_sqrt = parcov.inv(echo).get_matrix().diagonal().cwiseSqrt().asDiagonal();
+		else
+		{
+			message(1, "first extracting diagonal from prior parameter covariance matrix");
+			Covariance parcov_diag;
+			parcov_diag.from_diagonal(parcov);
+			parcov_inv_sqrt = parcov_diag.inv(echo).get_matrix().diagonal().cwiseSqrt().asDiagonal();
+		}
 	}
 
 	//obs ensemble
