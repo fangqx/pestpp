@@ -441,19 +441,21 @@ void IterEnsembleSmoother::throw_ies_error(string message)
 	throw runtime_error("IterEnsembleSmoother error: " + message);
 }
 
-void IterEnsembleSmoother::initialize_pe(Covariance &cov)
+bool IterEnsembleSmoother::initialize_pe(Covariance &cov)
 {
 	stringstream ss;
 	int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
 	string par_csv = pest_scenario.get_pestpp_options().get_ies_par_csv();
+	bool drawn = false;
 	if (par_csv.size() == 0)
 	{
 		message(1, "drawing parameter realizations: ", num_reals);
 		pe.draw(num_reals, cov, performance_log, pest_scenario.get_pestpp_options().get_ies_verbose_level());
-		stringstream ss;
-		ss << file_manager.get_base_filename() << ".0.par.csv";
-		message(1, "saving initial parameter ensemble to ", ss.str());
-		pe.to_csv(ss.str());
+		// stringstream ss;
+		// ss << file_manager.get_base_filename() << ".0.par.csv";
+		// message(1, "saving initial parameter ensemble to ", ss.str());
+		// pe.to_csv(ss.str());
+		drawn = true;
 	}
 	else
 	{
@@ -498,6 +500,22 @@ void IterEnsembleSmoother::initialize_pe(Covariance &cov)
 			ss << "unrecognized par csv extension " << par_ext << ", looking for csv, jcb, or jco";
 			throw_ies_error(ss.str());
 		}
+
+		if (pest_scenario.get_pestpp_options().get_ies_num_reals_passed())
+		{
+			int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
+			if (num_reals < pe.shape().first)
+			{
+				message(1,"ies_num_reals arg passed, truncated parameter ensemble to ",num_reals);
+				vector<string> keep_names,real_names=pe.get_real_names();
+				for (int i=0;i<num_reals;i++)
+				{
+					keep_names.push_back(real_names[i]);
+				}
+				pe.keep_rows(keep_names);
+			}
+		}
+
 		if (pest_scenario.get_pestpp_options().get_ies_use_empirical_prior())
 		{
 			message(1, "initializing prior parameter covariance matrix from ensemble (using diagonal matrix)");
@@ -520,6 +538,7 @@ void IterEnsembleSmoother::initialize_pe(Covariance &cov)
 		}
 		
 	}
+	return drawn;
 	
 }
 
@@ -527,9 +546,11 @@ void IterEnsembleSmoother::add_bases()
 {
 	//check that 'base' isn't already in ensemble
 	vector<string> rnames = pe.get_real_names();
+	bool inpar = false;
 	if (find(rnames.begin(), rnames.end(), "base") != rnames.end())
 	{
 		message(1, "'base' realization already in parameter ensemble, ignoring '++ies_include_base'");
+		inpar = true;
 	}
 	else
 	{
@@ -547,27 +568,52 @@ void IterEnsembleSmoother::add_bases()
 	}
 	else
 	{
-			
-		message(1, "adding 'base' observation values to ensemble");
 		Observations obs = pest_scenario.get_ctl_observations();
-		oe.append("base", obs);
+		if (inpar)
+		{
+			vector<string> prnames = pe.get_real_names();
+
+			int idx = find(prnames.begin(), prnames.end(), "base") - prnames.begin();
+			cout << idx << "," << rnames.size() << endl;
+			string oreal = rnames[idx];
+			stringstream ss;
+			ss << "warning: 'base' realization in par ensenmble but not in obs ensemble," << endl;
+			ss << "         replacing obs realization '" << oreal << "' with 'base'";
+			string mess = ss.str();
+			message(1, mess);
+			vector<string> drop;
+			drop.push_back(oreal);
+			oe.drop_rows(drop);
+			oe.append("base", obs);
+			//rnames.insert(rnames.begin() + idx, string("base"));
+			rnames[idx] = "base";
+			oe.reorder(rnames, vector<string>());
+		}
+		else
+		{
+			message(1, "adding 'base' observation values to ensemble");
+			oe.append("base", obs);
+		}
 	}
 }
 
-void IterEnsembleSmoother::initialize_oe(Covariance &cov)
+bool IterEnsembleSmoother::initialize_oe(Covariance &cov)
 {
 	stringstream ss;
 	int num_reals = pe.shape().first;
+
 	performance_log->log_event("load obscov");
 	string obs_csv = pest_scenario.get_pestpp_options().get_ies_obs_csv();
+	bool drawn = false;
 	if (obs_csv.size() == 0)
 	{
 		message(1, "drawing observation noise realizations: ", num_reals);
 		oe.draw(num_reals, cov, performance_log, pest_scenario.get_pestpp_options().get_ies_verbose_level());
-		stringstream ss;
-		ss << file_manager.get_base_filename() << ".base.obs.csv";
-		message(1, "saving initial observation ensemble to ", ss.str());
-		oe.to_csv(ss.str());
+		// stringstream ss;
+		// ss << file_manager.get_base_filename() << ".base.obs.csv";
+		// message(1, "saving initial observation ensemble to ", ss.str());
+		// oe.to_csv(ss.str());
+		drawn = true;
 	}
 	else
 	{
@@ -613,7 +659,22 @@ void IterEnsembleSmoother::initialize_oe(Covariance &cov)
 			ss << "unrecognized obs ensemble extension " << obs_ext << ", looing for csv, jcb, or jco";
 			throw_ies_error(ss.str());
 		}
+		if (pest_scenario.get_pestpp_options().get_ies_num_reals_passed())
+		{
+			int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
+			if (num_reals < oe.shape().first)
+			{
+				message(1,"ies_num_reals arg passed, truncated observation ensemble to ",num_reals);
+				vector<string> keep_names,real_names=oe.get_real_names();
+				for (int i=0;i<num_reals;i++)
+				{
+					keep_names.push_back(real_names[i]);
+				}
+				oe.keep_rows(keep_names);
+			}
+		}
 	}
+	return drawn;
 	
 }
 
@@ -816,7 +877,7 @@ void IterEnsembleSmoother::initialize()
 	if (parcov.e_ptr()->rows() > 0)
 		parcov = parcov.get(act_par_names);
 	
-	initialize_pe(parcov);
+	bool pe_drawn = initialize_pe(parcov);
 
 	if (pest_scenario.get_pestpp_options().get_ies_use_prior_scaling())
 	{
@@ -841,7 +902,7 @@ void IterEnsembleSmoother::initialize()
 	Covariance obscov;
 	obscov.from_observation_weights(pest_scenario);
 	obscov = obscov.get(act_obs_names);
-	initialize_oe(obscov);
+	bool oe_drawn = initialize_oe(obscov);
 
 	if (pe.shape().first != oe.shape().first)
 	{
@@ -850,6 +911,38 @@ void IterEnsembleSmoother::initialize()
 		throw_ies_error(ss.str());
 	}
 
+	//need this here for Am calcs...
+	message(0, "transforming parameter ensembles to numeric");
+	pe.transform_ip(ParameterEnsemble::transStatus::NUM);
+
+	if (pest_scenario.get_pestpp_options().get_ies_include_base())
+		add_bases();
+
+	/*if (pe_drawn)
+	{
+		stringstream ss;
+		ss << file_manager.get_base_filename() << ".0.par.csv";
+		message(1, "saving initial parameter ensemble to ", ss.str());
+		pe.to_csv(ss.str());
+	}
+
+	if (oe_drawn)
+	{
+		stringstream ss;
+		ss << file_manager.get_base_filename() << ".base.obs.csv";
+		message(1, "saving initial observation ensemble to ", ss.str());
+		oe.to_csv(ss.str());
+	}*/
+
+	ss.str("");
+	ss << file_manager.get_base_filename() << ".0.par.csv";
+	message(1, "saving initial parameter ensemble to ", ss.str());
+	pe.to_csv(ss.str());
+	ss.str("");
+	ss << file_manager.get_base_filename() << ".base.obs.csv";
+	message(1, "saving initial observation ensemble to ", ss.str());
+	oe.to_csv(ss.str());
+	
 	if (pest_scenario.get_control_info().noptmax == 0)
 	{
 		message(0, "'noptmax'=0, running mean parameter ensemble values and quitting");
@@ -905,15 +998,8 @@ void IterEnsembleSmoother::initialize()
 		use_subset = true;
 	}
 	
-	//need this here for Am calcs...
-	message(0, "transforming parameter ensembles to numeric");
-	pe.transform_ip(ParameterEnsemble::transStatus::NUM);
 	
-	if (pest_scenario.get_pestpp_options().get_ies_include_base())
-	{
-		add_bases();
-	}
-	
+
 	oe_org_real_names = oe.get_real_names();
 	pe_org_real_names = pe.get_real_names();
 
@@ -929,43 +1015,7 @@ void IterEnsembleSmoother::initialize()
 	//obscov.inv_ip(echo);
 	obscov_inv_sqrt = obscov.inv().get_matrix().diagonal().cwiseSqrt().asDiagonal();
 	
-	if (!pest_scenario.get_pestpp_options().get_ies_use_approx()) 
-	{
-		message(0, "using full (MAP) update solution");
-		performance_log->log_event("calculating 'Am' matrix for full solution");
-		message(1, "forming Am matrix");
-		double scale = (1.0 / (sqrt(double(pe.shape().first - 1))));
-		Eigen::MatrixXd par_diff = scale * pe.get_eigen_mean_diff();
-		par_diff.transposeInPlace();
-		if (verbose_level > 1)
-		{
-			cout << "prior_par_diff: " << par_diff.rows() << ',' << par_diff.cols() << endl;
-			if (verbose_level > 2)
-				save_mat("prior_par_diff.dat", par_diff);
-		}
-		
-		Eigen::MatrixXd ivec, upgrade_1, s, V, U, st;
-		SVD_REDSVD rsvd;
-		rsvd.set_performance_log(performance_log);
-
-		rsvd.solve_ip(par_diff, s, U, V, pest_scenario.get_svd_info().eigthresh, pest_scenario.get_svd_info().maxsing);
-		par_diff.resize(0, 0);
-		Eigen::MatrixXd temp = s.asDiagonal();
-		Eigen::MatrixXd temp2 = temp.inverse();
-		Am = U * temp;
-		if (verbose_level > 1)
-		{
-			cout << "Am:" << Am.rows() << ',' << Am.cols() << endl;
-			if (verbose_level > 2)
-			{
-				save_mat("am.dat", Am);
-				save_mat("am_u.dat", U);
-				save_mat("am_v.dat", V);
-				save_mat("am_s_inv.dat", temp2);
-			}
-		}	
-	}
-
+	
 
 	string obs_restart_csv = pest_scenario.get_pestpp_options().get_ies_obs_restart_csv();	
 	//no restart
@@ -1025,6 +1075,22 @@ void IterEnsembleSmoother::initialize()
 			ss << "unrecognized restart obs ensemble extension " << obs_ext << ", looing for csv, jcb, or jco";
 			throw_ies_error(ss.str());
 		}
+
+		if (pest_scenario.get_pestpp_options().get_ies_num_reals_passed())
+		{
+			int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
+			if (num_reals < oe.shape().first)
+			{
+				message(1,"ies_num_reals arg passed, truncated restart obs ensemble to ",num_reals);
+				vector<string> keep_names,real_names=oe.get_real_names();
+				for (int i=0;i<num_reals;i++)
+				{
+					keep_names.push_back(real_names[i]);
+				}
+				oe.keep_rows(keep_names);
+			}
+		}
+
 		//check that restart oe is in sync
 		stringstream ss;
 		vector<string> oe_real_names = oe.get_real_names(),oe_base_real_names = oe_base.get_real_names();
@@ -1097,6 +1163,8 @@ void IterEnsembleSmoother::initialize()
 		}
 	}
 
+
+
 	performance_log->log_event("calc initial phi");
 	//initialize the phi handler
 	ph = PhiHandler(&pest_scenario, &file_manager, &oe_base, &pe_base, &parcov, &reg_factor);
@@ -1137,6 +1205,43 @@ void IterEnsembleSmoother::initialize()
 	ph.report();
 	ph.write(0, run_mgr_ptr->get_total_runs());
 	
+	if (!pest_scenario.get_pestpp_options().get_ies_use_approx())
+	{
+		message(0, "using full (MAP) update solution");
+		performance_log->log_event("calculating 'Am' matrix for full solution");
+		message(1, "forming Am matrix");
+		double scale = (1.0 / (sqrt(double(pe.shape().first - 1))));
+		Eigen::MatrixXd par_diff = scale * pe.get_eigen_mean_diff();
+		par_diff.transposeInPlace();
+		if (verbose_level > 1)
+		{
+			cout << "prior_par_diff: " << par_diff.rows() << ',' << par_diff.cols() << endl;
+			if (verbose_level > 2)
+				save_mat("prior_par_diff.dat", par_diff);
+		}
+
+		Eigen::MatrixXd ivec, upgrade_1, s, V, U, st;
+		SVD_REDSVD rsvd;
+		rsvd.set_performance_log(performance_log);
+
+		rsvd.solve_ip(par_diff, s, U, V, pest_scenario.get_svd_info().eigthresh, pest_scenario.get_svd_info().maxsing);
+		par_diff.resize(0, 0);
+		Eigen::MatrixXd temp = s.asDiagonal();
+		Eigen::MatrixXd temp2 = temp.inverse();
+		Am = U * temp;
+		if (verbose_level > 1)
+		{
+			cout << "Am:" << Am.rows() << ',' << Am.cols() << endl;
+			if (verbose_level > 2)
+			{
+				save_mat("am.dat", Am);
+				save_mat("am_u.dat", U);
+				save_mat("am_v.dat", V);
+				save_mat("am_s_inv.dat", temp2);
+			}
+		}
+	}
+
 	last_best_mean = ph.get_mean(PhiHandler::phiType::COMPOSITE);
 	last_best_std = ph.get_std(PhiHandler::phiType::COMPOSITE);
 	last_best_lam = pest_scenario.get_pestpp_options().get_ies_init_lam();
@@ -1587,8 +1692,7 @@ void IterEnsembleSmoother::solve()
 		last_best_mean = best_mean;
 
 		pe = pe_lams[best_idx];
-		oe = oe_lam_best;
-		
+		oe = oe_lam_best;		
 		if (best_std < last_best_std * 1.1)
 		{
 			double new_lam = lam_vals[best_idx] * 0.75;
@@ -1628,6 +1732,7 @@ void IterEnsembleSmoother::report_and_save()
 
 	stringstream ss;
 	ss << file_manager.get_base_filename() << "." << iter << ".obs.csv";
+	
 	oe.to_csv(ss.str());
 	frec << "      current obs ensemble saved to " << ss.str() << endl;
 	cout << "      current obs ensemble saved to " << ss.str() << endl;
@@ -1746,7 +1851,6 @@ vector<ObservationEnsemble> IterEnsembleSmoother::run_lambda_ensembles(vector<Pa
 			}
 			
 		}
-
 		obs_lams.push_back(_oe);
 	}
 	return obs_lams;
