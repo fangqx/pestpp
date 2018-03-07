@@ -232,6 +232,11 @@ void PhiHandler::report()
 	s = get_summary_string(PhiHandler::phiType::ACTUAL);
 	f << s;
 	cout << s;
+	if (*reg_factor == 0.0)
+	{
+		f << "    (note: reg_factor is zero; regularization phi reported but not used)" << endl;
+		cout  << "    (note: reg_factor is zero; regularization phi reported but not used)" << endl;
+	}
 	f << endl << endl;
 	f.flush();
 }
@@ -857,6 +862,7 @@ void IterEnsembleSmoother::initialize()
 		if (!pest_scenario.get_pestpp_options().get_ies_use_empirical_prior())
 		{
 			message(1, "initializing prior parameter covariance matrix from parameter bounds");
+			message(1, "using par_sigma_range (number of standard deviations that par bounds represent):", pest_scenario.get_pestpp_options().get_par_sigma_range());
 			parcov.from_parameter_bounds(pest_scenario);
 		}
 	}
@@ -1565,7 +1571,8 @@ void IterEnsembleSmoother::solve()
 			pe_lam.set_eigen(*pe_lam.get_eigen_ptr() + upgrade_2.transpose());
 		}
 
-		pe_lam.enforce_bounds();
+		if (pest_scenario.get_pestpp_options().get_ies_enforce_bounds())
+			pe_lam.enforce_bounds();
 
 		pe_lams.push_back(pe_lam);
 		lam_vals.push_back(cur_lam);

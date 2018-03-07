@@ -754,6 +754,19 @@ void PestppOptions::parce_line(const string &line)
 			istringstream is(value);
 			is >> boolalpha >> ies_group_draws;
 		}
+		else if (key == "IES_ENFORCE_BOUNDS")
+		{
+			transform(value.begin(), value.end(), value.begin(), ::tolower);
+			istringstream is(value);
+			is >> boolalpha >> ies_enforce_bounds;
+		}
+		else if (key == "PAR_SIGMA_RANGE")
+		{
+			convert_ip(value, par_sigma_range);
+		}
+		else if (key == "YAMR_POLL_INTERVAL") {
+			//doesn't apply here
+		}
 		else {
 
 			throw PestParsingError(line, "Invalid key word \"" + key +"\"");

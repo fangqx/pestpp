@@ -344,6 +344,12 @@ public:
 	void set_ies_group_draws(bool _ies_group_draws) { ies_group_draws = _ies_group_draws; }
 	bool get_ies_num_reals_passed() const { return ies_num_reals_passed; }
 	void set_ies_num_reals_passed(bool _ies_num_reals_passed) { ies_num_reals_passed = _ies_num_reals_passed; }
+	bool get_ies_enforce_bounds() const { return ies_enforce_bounds; }
+	void set_ies_enforce_bounds(bool _ies_enforce_bounds) { ies_enforce_bounds = _ies_enforce_bounds; }
+
+	double get_par_sigma_range() const { return par_sigma_range; }
+	void set_par_sigma_range(double _par_sigma_range) { par_sigma_range = _par_sigma_range; }
+
 
 private:
 	int n_iter_base;
@@ -417,6 +423,8 @@ private:
 	bool ies_use_empirical_prior;
 	bool ies_group_draws;
 	bool ies_num_reals_passed;
+	bool ies_enforce_bounds;
+	double par_sigma_range;
 };
 ostream& operator<< (ostream &os, const PestppOptions& val);
 ostream& operator<< (ostream &os, const ObservationInfo& val);

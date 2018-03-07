@@ -480,6 +480,13 @@ int Pest::process_ctl_file(ifstream &fin, string pst_filename)
 		else if (section == "OBSERVATION GROUPS")
 		{
 			string name = tokens[0];
+			if (tokens.size() > 1)
+			{
+				stringstream ss;
+				ss << "observation covariance matrix detected for group '" << tokens[0] << "' - these are not supported...yet!";
+				string s = ss.str();
+				throw PestError(s);
+			}	
 			ObservationGroupRec group_rec;
 			observation_info.groups[name] = group_rec;
 			vector<string>::iterator is = find(ctl_ordered_obs_group_names.begin(), ctl_ordered_obs_group_names.end(), name);
@@ -660,7 +667,8 @@ int Pest::process_ctl_file(ifstream &fin, string pst_filename)
 	pestpp_options.set_ies_use_empirical_prior(false);
 	pestpp_options.set_ies_group_draws(true);
 	pestpp_options.set_ies_num_reals_passed(false);
-
+	pestpp_options.set_ies_enforce_bounds(true);
+	pestpp_options.set_par_sigma_range(4.0);
 	pestpp_options.set_condor_submit_file(string());
 
 	for(vector<string>::const_iterator b=pestpp_input.begin(),e=pestpp_input.end();
