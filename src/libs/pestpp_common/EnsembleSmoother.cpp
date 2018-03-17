@@ -43,7 +43,12 @@ PhiHandler::PhiHandler(Pest *_pest_scenario, FileManager *_file_manager,
 
 
 	reg_factor = _reg_factor;
-	parcov_inv = _parcov->inv();
+	//Eigen::VectorXd parcov_inv_diag = parcov_inv.e_ptr()->diagonal();
+	parcov_inv_diag = _parcov->e_ptr()->diagonal();
+	for (int i = 0; i < parcov_inv_diag.size(); i++)
+		parcov_inv_diag(i) = 1.0 / parcov_inv_diag(i);
+
+	//parcov_inv = _parcov->inv();
 	//parcov.inv_ip();
 	oreal_names = oe_base->get_real_names();
 	preal_names = pe_base->get_real_names();
@@ -319,7 +324,7 @@ map<string, double> PhiHandler::calc_regul(ParameterEnsemble & pe)
 	pe.transform_ip(ParameterEnsemble::transStatus::NUM);
 	Eigen::MatrixXd diff_mat = get_par_resid(pe);
 
-	Eigen::VectorXd parcov_inv_diag = parcov_inv.e_ptr()->diagonal();
+	
 	Eigen::VectorXd diff;
 	for (int i = 0; i < real_names.size(); i++)
 	{	
@@ -1025,7 +1030,8 @@ void IterEnsembleSmoother::initialize()
 	obscov_inv_sqrt = obscov.inv().get_matrix().diagonal().cwiseSqrt().asDiagonal();
 	if (verbose_level > 2)
 	{
-		save_mat("obscov_inv_sqrt.dat", obscov_inv_sqrt.toDenseMatrix());
+		Eigen::MatrixXd oc = obscov_inv_sqrt.toDenseMatrix();
+		save_mat("obscov_inv_sqrt.dat", oc);
 	}
 	
 
@@ -1756,14 +1762,31 @@ void IterEnsembleSmoother::report_and_save()
 	cout << "   number of model runs:            " << run_mgr_ptr->get_total_runs() << endl;
 
 	stringstream ss;
-	ss << file_manager.get_base_filename() << "." << iter << ".obs.csv";
-	
-	oe.to_csv(ss.str());
+	if (pest_scenario.get_pestpp_options().get_ies_save_binary())
+	{
+		ss << file_manager.get_base_filename() << "." << iter << ".obs.jcb";
+		oe.to_binary(ss.str());
+	}
+	else
+	{
+		ss << file_manager.get_base_filename() << "." << iter << ".obs.csv";
+		oe.to_csv(ss.str());
+	}
 	frec << "      current obs ensemble saved to " << ss.str() << endl;
 	cout << "      current obs ensemble saved to " << ss.str() << endl;
 	ss.str("");
-	ss << file_manager.get_base_filename() << "." << iter << ".par.csv";
-	pe.to_csv(ss.str());
+	if (pest_scenario.get_pestpp_options().get_ies_save_binary())
+	{
+		ss << file_manager.get_base_filename() << "." << iter << ".par.jcb";
+		pe.to_binary(ss.str());
+	}
+	else
+	{
+		ss << file_manager.get_base_filename() << "." << iter << ".par.csv";
+		pe.to_csv(ss.str());
+	}
+	//ss << file_manager.get_base_filename() << "." << iter << ".par.csv";
+	//pe.to_csv(ss.str());
 	frec << "      current par ensemble saved to " << ss.str() << endl;
 	cout << "      current par ensemble saved to " << ss.str() << endl;
 	
