@@ -108,15 +108,24 @@ char* OperSys::gets_s(char *str, size_t len)
 
 bool OperSys::double_is_invalid(double x)
 {
+	//c++11 is supposed to have these in the 
+	//std
+	
 #ifdef OS_WIN
-   bool test = (_isnan(x)!=0 || _finite(x) == 0);
-   return test;
+  //bool test = (_isnan(x)!=0 || _finite(x) == 0);
+	bool test = (std::isnan(x) || !std::isfinite(x));
+  return test;
 #endif
 #ifdef OS_LINUX
-   //bool test = (std::isnan(x) || std::isinf(x));
-  //return test;
-   return true;
+#ifdef __INTEL_COMPILER
+  bool test = (isnan(x) || isinf(x));
+#else
+  bool test = (std::isnan(x) || !std::isfinite(x));ß
+  return test;
+  //return true;
+#endif  
 #endif
+	return test;
 }
 
 
