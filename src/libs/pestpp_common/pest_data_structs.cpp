@@ -773,6 +773,22 @@ void PestppOptions::parce_line(const string &line)
 		else if (key == "YAMR_POLL_INTERVAL") {
 			//doesn't apply here
 		}
+		else if (key == "IES_LOCALIZER")
+		{
+			convert_ip(value, ies_localizer);
+		}
+		else if (key == "IES_ACCEPT_PHI_FAC")
+		{
+			convert_ip(value, ies_accept_phi_fac);
+		}
+		else if (key == "IES_LAMBDA_INC_FAC")
+		{
+			convert_ip(value, ies_lambda_inc_fac);
+		}
+		else if (key == "IES_LAMBDA_DEC_FAC")
+		{
+			convert_ip(value, ies_lambda_dec_fac);
+		}
 		else {
 
 			throw PestParsingError(line, "Invalid key word \"" + key +"\"");

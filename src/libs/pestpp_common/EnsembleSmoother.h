@@ -13,7 +13,7 @@
 #include "covariance.h"
 #include "RunManagerAbstract.h"
 #include "ObjectiveFunc.h"
-
+ 
 class PhiHandler
 {
 public:
@@ -70,6 +70,8 @@ private:
 
 	vector<string> lt_obs_names;
 	vector<string> gt_obs_names;
+	
+
 };
 
 
