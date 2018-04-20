@@ -27,18 +27,64 @@ void Ensemble::reserve(vector<string> _real_names, vector<string> _var_names)
 	real_names = _real_names;
 }
 
+Ensemble Ensemble::zero_like()
+{
+	Eigen::MatrixXd new_reals = Eigen::MatrixXd::Zero(real_names.size(), var_names.size());
+	Ensemble new_en(pest_scenario_ptr);
+	new_en.from_eigen_mat(new_reals, real_names, var_names);
+	return new_en;
+}
+
+void Ensemble::add_2_cols_ip(Ensemble &other)
+{
+//add values to (a subset of the) columns of reals
+if (shape().first != other.shape().first)
+throw_ensemble_error("Ensemble::add_2_cols_ip(): first dimensions don't match");
+vector<string> other_real_names = other.get_real_names();
+vector<string> mismatch;
+for (int i = 0; i < shape().first; i++)
+{
+	if (other_real_names[i] != real_names[i])
+		mismatch.push_back(real_names[i]);
+
+}
+if (mismatch.size() > 0)
+throw_ensemble_error("the following real_names don't match other", mismatch);
+
+map<string, int> this_varmap, other_varmap;
+for (int i = 0; i < var_names.size(); i++)
+	this_varmap[var_names[i]] = i;
+vector<string> other_var_names = other.get_var_names();
+
+vector<string> missing;
+set<string> svnames(var_names.begin(), var_names.end());
+set<string>::iterator end = svnames.end();
+for (int i = 0; i < other_var_names.size(); i++)
+{
+	if (svnames.find(other_var_names[i]) == end)
+		missing.push_back(other_var_names[i]);
+	other_varmap[other_var_names[i]] = i;
+}
+if (missing.size() > 0)
+throw_ensemble_error("Ensemble::add_2_cols_ip(): the following var names in other were not found", missing);
+for (auto &ovm : other_varmap)
+{
+	reals.col(this_varmap[ovm.first]) += other.get_eigen_ptr()->col(ovm.second);
+}
+}
+
 void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const vector<string> &draw_names,
-	const map<string,vector<string>> &grouper ,PerformanceLog *plog, int level)
+	const map<string, vector<string>> &grouper, PerformanceLog *plog, int level)
 {
 	//draw names should be "active" var_names (nonzero weight obs and not fixed/tied pars)
 	//just a quick sanity check...
 	//if ((draw_names.size() > 50000) && (!cov.isdiagonal()))
 	//	cout << "  ---  Ensemble::draw() warning: non-diagonal cov used to draw for lots of variables...this might run out of memory..." << endl << endl;
-	
+
 	//matrix to hold the standard normal draws
 	Eigen::MatrixXd draws(num_reals, draw_names.size());
 	draws.setZero();
-	
+
 	//make sure the cov is aligned
 	if (cov.get_col_names() != draw_names)
 		cov = cov.get(draw_names);
@@ -47,19 +93,18 @@ void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const ve
 	plog->log_event("making standard normal draws");
 	RedSVD::sample_gaussian(draws);
 	if (level > 2)
-	{ 
+	{
 		ofstream f("standard_normal_draws.dat");
 		f << draws << endl;
 		f.close();
 	}
-	
 
-	//if diagonal cov, then scale by variance
+	Eigen::VectorXd std = cov.e_ptr()->diagonal().cwiseSqrt();
+	//if diagonal cov, then scale by std
 	if (cov.isdiagonal())
 	{
-		plog->log_event("scaling by variance");
-		Eigen::VectorXd std = cov.e_ptr()->diagonal().cwiseSqrt();
-
+		plog->log_event("scaling by std");
+		
 		for (int j = 0; j < draw_names.size(); j++)
 		{
 			//cout << var_names[j] << " , " << std(j) << endl;
@@ -69,7 +114,7 @@ void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const ve
 	//if not diagonal, eigen decomp of cov then project the standard normal draws
 	else
 	{
-		
+
 		if (grouper.size() > 0)
 		{
 			cout << "...drawing by group" << endl;
@@ -81,12 +126,24 @@ void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const ve
 			vector<int> idx;
 			for (int i = 0; i < var_names.size(); i++)
 				idx_map[var_names[i]] = i;
-			for (auto &gi : grouper) 
+			for (auto &gi : grouper)
 			{
 				ss.str("");
 				ss << "...processing " << gi.first << " with " << gi.second.size() << " elements" << endl;
 				cout << ss.str();
 				plog->log_event(ss.str());
+				if (gi.second.size() == 0)
+					throw_ensemble_error("Ensemble::draw(): no elements found for group", gi.second);
+				if (gi.second.size() == 1)
+				{
+					ss.str("");
+					ss << "only one element in group " << gi.first << ", scaling by std";
+					plog->log_event(ss.str());
+					int j = idx_map[gi.second[0]];
+					draws.col(j) *= std(j);
+					continue;
+				}
+
 				gcov = cov.get(gi.second);
 				if (level > 2)
 				{
@@ -183,8 +240,7 @@ void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const ve
 		}
 	}
 
-	if (found_invalid)
-		throw_ensemble_error("invalid values in realization draws");
+	
 
 	//form some realization names
 	real_names.clear();
@@ -221,6 +277,11 @@ void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const ve
 			//double dtemp = tran.get_rec(var_names[j]);
 			reals.col(j) = draws.col(dmap[var_names[j]]).array() + tran.get_rec(var_names[j]);
 		}
+	}
+	if (found_invalid)
+	{
+		to_csv("trouble.csv");
+		throw_ensemble_error("invalid values in realization draws - trouble.csv written");
 	}
 }
 
@@ -639,7 +700,7 @@ map<string,int> Ensemble::prepare_csv(const vector<string> &names, ifstream &csv
 
 }
 
-void Ensemble::add_to_cols(Eigen::MatrixXd &_reals, const vector<string> &_var_names)
+void Ensemble::extend_cols(Eigen::MatrixXd &_reals, const vector<string> &_var_names)
 {
 	//add new columns to reals
 	vector<string>::iterator start = var_names.begin(), end = var_names.end();
@@ -1031,12 +1092,14 @@ map<int,int> ParameterEnsemble::add_runs(RunManagerAbstract *run_mgr_ptr,const v
 
 	for (auto &rname : run_real_names)
 	{
+		Eigen::VectorXd rvector = get_real_vector(rname);
 		pars.update_without_clear(var_names, get_real_vector(rname));
 		//make sure the pars are in the right trans status
 		if (tstat == ParameterEnsemble::transStatus::CTL)
 			par_transform.active_ctl2model_ip(pars);
 		else if (tstat == ParameterEnsemble::transStatus::NUM)
 			par_transform.numeric2model_ip(pars);
+		replace_fixed(rname, pars);
 		run_id = run_mgr_ptr->add_run(pars);
 		real_run_ids[find(real_names.begin(), real_names.end(), rname) - real_names.begin()]  = run_id;
 	}
@@ -1065,6 +1128,7 @@ void ParameterEnsemble::from_binary(string file_name)
 	//overload for ensemble::from_binary - just need to set tstat
 	vector<string> names = pest_scenario_ptr->get_ctl_ordered_par_names();
 	Ensemble::from_binary(file_name, names, false);
+	save_fixed();
 	tstat = transStatus::CTL;
 }
 
@@ -1074,7 +1138,8 @@ void ParameterEnsemble::from_csv(string file_name)
 	ifstream csv(file_name);
 	if (!csv.good())
 		throw runtime_error("error opening parameter csv " + file_name + " for reading"); 
-	var_names = pest_scenario_ptr->get_ctl_ordered_adj_par_names();
+	//var_names = pest_scenario_ptr->get_ctl_ordered_adj_par_names();
+	var_names = pest_scenario_ptr->get_ctl_ordered_par_names();
 	map<string,int>header_info = prepare_csv(var_names, csv, false);
 	//blast through the file to get number of reals
 	string line;
@@ -1089,9 +1154,51 @@ void ParameterEnsemble::from_csv(string file_name)
 	getline(csv, line);
 	Ensemble::read_csv(num_reals, csv, header_info);
 
+	save_fixed();
 	
 	tstat = transStatus::CTL;
 
+}
+
+void ParameterEnsemble::save_fixed()
+{
+	ParameterInfo pi = pest_scenario_ptr->get_ctl_parameter_info();
+	ParameterRec::TRAN_TYPE ft = ParameterRec::TRAN_TYPE::FIXED;
+	for (auto &name : var_names)
+	{
+		if (pi.get_parameter_rec_ptr(name)->tranform_type == ft)
+		{
+			fixed_names.push_back(name);
+		}
+	}
+	if (fixed_names.size() > 0)
+	{
+		cout << "fixed parameters found in user-supplied parameter ensemble..." << endl;
+		cout << "these values will be used during forward model runs instead of 'parval1'" << endl;
+
+		Eigen::MatrixXd fixed_reals = get_eigen(vector<string>(), fixed_names);
+		
+		for (int i = 0; i < real_names.size(); i++)
+		{
+			for (int j = 0; j < fixed_names.size(); j++)
+			{
+				pair<string, string> key(real_names[i], fixed_names[j]);
+				fixed_map[key] = fixed_reals(i, j);
+
+			}
+		}
+		// add the "base" if its not in the real names already
+		if (find(real_names.begin(), real_names.end(), "base") == real_names.end())
+		{
+			Parameters pars = pest_scenario_ptr->get_ctl_parameters();
+			for (auto fname : fixed_names)
+			{
+				pair<string, string> key("base", fname);
+				fixed_map[key] = pars[fname];
+			}
+		}
+
+	}
 }
 
 void ParameterEnsemble::enforce_bounds()
@@ -1124,6 +1231,95 @@ void ParameterEnsemble::enforce_bounds()
 	}
 }
 
+void ParameterEnsemble::to_binary(string file_name)
+{
+
+
+	ofstream fout(file_name, ios::binary);
+	if (!fout.good())
+	{
+		throw runtime_error("error opening file for binary parameter ensemble:" + file_name);
+	}
+
+	vector<string> vnames = var_names;
+	vnames.insert(vnames.end(), fixed_names.begin(), fixed_names.end());
+
+	int n_var = vnames.size();
+	int n_real = real_names.size();
+	int n;
+	int tmp;
+	double data;
+	char par_name[12];
+	char obs_name[20];
+
+	// write header
+	tmp = -n_var;
+	fout.write((char*)&tmp, sizeof(tmp));
+	tmp = -n_real;
+	fout.write((char*)&tmp, sizeof(tmp));
+
+	//write number nonzero elements in jacobian (includes prior information)
+
+	n = reals.size() + (fixed_names.size() * shape().first);
+	fout.write((char*)&n, sizeof(n));
+
+	//write matrix
+	n = 0;
+	//map<string, double>::const_iterator found_pi_par;
+	//map<string, double>::const_iterator not_found_pi_par;
+	//icount = row_idxs + 1 + col_idxs * self.shape[0]
+	Parameters pars;
+	for (int irow = 0; irow<n_real; ++irow)
+	{
+		pars.update_without_clear(var_names, reals.row(irow));
+		if (tstat == transStatus::MODEL)
+			par_transform.model2ctl_ip(pars);
+		else if (tstat == transStatus::NUM)
+			par_transform.numeric2ctl_ip(pars);
+		replace_fixed(real_names[irow], pars);
+
+		for (int jcol = 0; jcol<n_var; ++jcol)
+		{
+			n = irow + 1 + (jcol * n_real);
+			data = pars[vnames[jcol]];
+			fout.write((char*) &(n), sizeof(n));
+			fout.write((char*) &(data), sizeof(data));
+		}
+		/*int jcol = n_var;
+		for (auto &fname : fixed_names)
+		{
+			n = irow + 1 + (jcol * n_real);
+			data = fixed_map.at(pair<string, string>(real_names[irow], fname));
+			fout.write((char*) &(n), sizeof(n));
+			fout.write((char*) &(data), sizeof(data));
+			jcol++;
+		}*/
+	}
+	//save parameter names
+	for (vector<string>::const_iterator b = vnames.begin(), e = vnames.end();
+		b != e; ++b) {
+		string l = pest_utils::lower_cp(*b);
+		pest_utils::string_to_fortran_char(l, par_name, 12);
+		fout.write(par_name, 12);
+	}
+	/*for (auto fname : fixed_names)
+	{
+		pest_utils::string_to_fortran_char(pest_utils::lower_cp(fname), par_name, 12);
+		fout.write(par_name, 12);
+	}*/
+
+	//save observation and Prior information names
+	for (vector<string>::const_iterator b = real_names.begin(), e = real_names.end();
+		b != e; ++b) {
+		string l = pest_utils::lower_cp(*b);
+		pest_utils::string_to_fortran_char(l, obs_name, 20);
+		fout.write(obs_name, 20);
+	}
+	//save observation names (part 2 prior information)
+	fout.close();
+}
+
+
 void ParameterEnsemble::to_csv(string file_name)
 {
 	//write the par ensemble to csv file - transformed back to CTL status
@@ -1151,11 +1347,26 @@ void ParameterEnsemble::to_csv(string file_name)
 			par_transform.model2ctl_ip(pars);
 		else if (tstat == transStatus::NUM)
 			par_transform.numeric2ctl_ip(pars);
-
+		replace_fixed(real_names[ireal],pars);
 		for (auto &name : names)
 			csv << pars[name] << ',';
 		csv << endl;
 	}
+}
+
+void ParameterEnsemble::replace_fixed(string real_name,Parameters &pars)
+{
+	if (fixed_names.size() > 0)
+	{
+		for (auto fname : fixed_names)
+		{
+			pair<string, string> key(real_name, fname);
+			double val = fixed_map.at(key);
+			pars.update_rec(fname, val);
+		}
+
+	}
+
 }
 
 void ParameterEnsemble::transform_ip(transStatus to_tstat)

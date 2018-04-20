@@ -38,7 +38,9 @@ public:
 
 	const vector<string> get_real_names(vector<int> &indices);
 
-	void add_to_cols(Eigen::MatrixXd &_reals, const vector<string> &_var_names);
+	void extend_cols(Eigen::MatrixXd &_reals, const vector<string> &_var_names);
+	void add_2_cols_ip(Ensemble &other);
+	Ensemble zero_like();
 
 	void reserve(vector<string> _real_names, vector<string> _var_names);
 
@@ -120,10 +122,15 @@ public:
 
 	void draw(int num_reals, Covariance &cov, PerformanceLog *plog, int level);
 	Covariance get_diagonal_cov_matrix();
+	void to_binary(string filename);
 
 private:
 	ParamTransformSeq par_transform;
 	transStatus tstat;
+	void save_fixed();
+	vector<string> fixed_names;
+	map<pair<string, string>, double> fixed_map;
+	void replace_fixed(string real_name,Parameters &pars);
 };
 
 class ObservationEnsemble : public Ensemble

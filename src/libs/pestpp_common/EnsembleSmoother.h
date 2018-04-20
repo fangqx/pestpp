@@ -13,7 +13,7 @@
 #include "covariance.h"
 #include "RunManagerAbstract.h"
 #include "ObjectiveFunc.h"
-
+ 
 class PhiHandler
 {
 public:
@@ -30,7 +30,8 @@ public:
 	double get_min(phiType pt);
 	map<string, double>* get_phi_map(PhiHandler::phiType &pt);
 	void report();
-	void write(int iter_num, int total_runs);
+	void write(int iter_num, int total_runs, bool write_group = true);
+	void write_group(int iter_num, int total_runs, vector<double> extra);
 	vector<int> get_idxs_greater_than(double bad_phi, ObservationEnsemble &oe);
 
 	Eigen::MatrixXd get_obs_resid(ObservationEnsemble &oe);
@@ -47,15 +48,21 @@ private:
 	string get_summary_string(phiType pt);
 	string get_summary_header();
 	void prepare_csv(ofstream &csv,vector<string> &names);
-	map<string, double> calc_meas(ObservationEnsemble &oe);
-	map<string, double> calc_regul(ParameterEnsemble &pe);
-	map<string, double> calc_actual(ObservationEnsemble &oe);
+	void prepare_group_csv(ofstream &csv, vector<string> extra = vector<string>());
+
+	map<string, Eigen::VectorXd> calc_meas(ObservationEnsemble &oe, Eigen::VectorXd &_q_vec);
+	map<string, Eigen::VectorXd> calc_regul(ParameterEnsemble &pe, double _reg_fac);
+	map<string, Eigen::VectorXd> calc_actual(ObservationEnsemble &oe, Eigen::VectorXd &_q_vec);
 	map<string, double> calc_composite(map<string,double> &_meas, map<string,double> &_regul);
 	//map<string, double>* get_phi_map(PhiHandler::phiType &pt);
 	void write_csv(int iter_num, int total_runs,ofstream &csv, phiType pt,
 		           vector<string> &names);
+	void write_group_csv(int iter_num, int total_runs, ofstream &csv, 
+		vector<double> extra = vector<double>());
 
 	double *reg_factor;
+	double org_reg_factor;
+	Eigen::VectorXd org_q_vec;
 	vector<string> oreal_names,preal_names;
 	Pest* pest_scenario;
 	FileManager* file_manager;
@@ -70,6 +77,14 @@ private:
 
 	vector<string> lt_obs_names;
 	vector<string> gt_obs_names;
+
+	map<string, vector<int>> obs_group_idx_map;
+	map<string, vector<int>> par_group_idx_map;
+	map<string, map<string, double>> obs_group_phi_map, par_group_phi_map;
+	
+	map<string, double> get_obs_group_contrib(Eigen::VectorXd &phi_vec);
+	map<string, double> get_par_group_contrib(Eigen::VectorXd &phi_vec);	
+	
 };
 
 
@@ -80,7 +95,8 @@ public:
 		OutputFileWriter &_output_file_writer, PerformanceLog *_performance_log,
 		RunManagerAbstract* _run_mgr_ptr);
 	void initialize();
-	void solve();
+	void iterate_2_solution();
+	void pareto_iterate_2_solution();
 	void finalize();
 	void throw_ies_error(string message);
 
@@ -114,8 +130,8 @@ private:
 	Eigen::MatrixXd Am;
 	Eigen::DiagonalMatrix<double,Eigen::Dynamic> obscov_inv_sqrt, parcov_inv_sqrt;
 
-
-
+	bool solve();
+	void adjust_pareto_weight(string &obsgroup, double wfac);
 
 	//EnsemblePair run_ensemble(ParameterEnsemble &_pe, ObservationEnsemble &_oe);
 	vector<int> run_ensemble(ParameterEnsemble &_pe, ObservationEnsemble &_oe, const vector<int> &real_idxs=vector<int>());

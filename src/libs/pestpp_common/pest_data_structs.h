@@ -31,7 +31,9 @@
 class LaTridiagMatDouble;
 
 class ControlInfo {
+	
 public:
+	enum PestMode { ESTIMATION, REGUL, PARETO, UNKNOWN };
 	double relparmax;
 	double facparmax;
 	double facorig;
@@ -46,9 +48,10 @@ public:
 	int nrelpar;
 	int noptswitch;
 	double splitswh;
+	PestMode pestmode;
 	ControlInfo() : relparmax(0.0), facparmax(0.0), facorig(0.0), phiredswh(0.0), noptmax(0),
 		phiredstp(0.0), nphistp(0), nphinored(0), relparstp(0.0), nrelpar(0), noptswitch(0),
-		splitswh(0.0) {}
+		splitswh(0.0), pestmode(PestMode::ESTIMATION){}
 };
 ostream& operator<< (ostream &os, const ControlInfo& val);
 
@@ -125,10 +128,10 @@ public:
 	double scale;
 	double offset;
 	string group;
-	bool dercom;
+	int dercom;
 	TRAN_TYPE tranform_type;
 	ParameterRec() : chglim(""), lbnd(0.0), ubnd(0.0), init_value(0.0), group(""),
-		dercom(false), tranform_type(TRAN_TYPE::NONE), scale(1.0), offset(0.0){}
+		dercom(1), tranform_type(TRAN_TYPE::NONE), scale(1.0), offset(0.0){}
 	bool is_active() const { return !(tranform_type == TRAN_TYPE::FIXED || tranform_type == TRAN_TYPE::TIED); }
 };
 ostream& operator<< (ostream &os, const ParameterRec& val);
@@ -184,6 +187,8 @@ public:
 	int get_nnz_obs() const;
 	int get_nnz_obs_and_reg() const;
 	vector<string> get_groups();
+	void reset_group_weights(string &group, double val);
+
 };
 
 class ModelExecInfo {
@@ -195,7 +200,14 @@ public:
 	std::vector<std::string> outfile_vec;
 };
 
-
+class ParetoInfo {
+public:
+	double wf_start, wf_fin, wf_inc;
+	string obsgroup;
+	int niter_start, niter_gen, niter_fin;
+	ParetoInfo() : wf_start(1.0), wf_fin(1.0), wf_inc(0.0),
+		obsgroup(""), niter_start(1), niter_gen(1), niter_fin(1) {};
+};
 
 class PestppOptions {
 public:
@@ -351,7 +363,16 @@ public:
 	void set_par_sigma_range(double _par_sigma_range) { par_sigma_range = _par_sigma_range; }
 	bool get_ies_save_binary() const { return ies_save_binary; }
 	void set_ies_save_binary(bool _ies_save_binary) { ies_save_binary = _ies_save_binary; }
-
+	string get_ies_localizer() const { return ies_localizer; }
+	void set_ies_localizer(string _ies_localizer) { ies_localizer = _ies_localizer; }
+	double get_ies_accept_phi_fac() const { return ies_accept_phi_fac; }
+	void set_ies_accept_phi_fac(double _acc_phi_fac) { ies_accept_phi_fac = _acc_phi_fac; }
+	double get_ies_lambda_inc_fac() const { return ies_lambda_inc_fac; }
+	void set_ies_lambda_inc_fac(double _inc_fac) { ies_lambda_inc_fac = _inc_fac; }
+	double get_ies_lambda_dec_fac() const { return ies_lambda_dec_fac; }
+	void set_ies_lambda_dec_fac(double _dec_fac) { ies_lambda_dec_fac = _dec_fac; }
+	bool get_ies_save_lambda_en() const { return ies_save_lambda_en; }
+	void set_ies_save_lambda_en(bool _ies_save_lambda_en) { ies_save_lambda_en = _ies_save_lambda_en; }
 
 private:
 	int n_iter_base;
@@ -428,6 +449,11 @@ private:
 	bool ies_enforce_bounds;
 	double par_sigma_range;
 	bool ies_save_binary;
+	string ies_localizer;
+	double ies_accept_phi_fac;
+	double ies_lambda_inc_fac;
+	double ies_lambda_dec_fac;
+	bool ies_save_lambda_en;
 };
 ostream& operator<< (ostream &os, const PestppOptions& val);
 ostream& operator<< (ostream &os, const ObservationInfo& val);
