@@ -193,14 +193,16 @@ void PhiHandler::update(ObservationEnsemble & oe, ParameterEnsemble & pe)
 	}*/
 
 	regul.clear();
-	map<string, Eigen::VectorXd> reg_map = calc_regul(pe, *reg_factor);
+	map<string, Eigen::VectorXd> reg_map = calc_regul(pe);//, *reg_factor);
 	//for (auto &pv : calc_regul(pe))
 	string name;
 	//big assumption - if oe is a diff shape, then this 
 	//must be a subset, so just use the first X rows of pe
 	for (int i=0;i<oe.shape().first;i++)
 	{
-		name = preal_names[i];
+		//name = preal_names[i];
+		name = pe.get_real_names()[i];
+		//cout << name << endl;
 		regul[name] = reg_map[name].sum();
 		par_group_phi_map[name] = get_par_group_contrib(reg_map[name]);
 	}
@@ -342,11 +344,19 @@ void PhiHandler::report()
 	s = get_summary_string(PhiHandler::phiType::ACTUAL);
 	f << s;
 	cout << s;
-	if (*reg_factor == 0.0)
+	/*if (*reg_factor == 0.0)
 	{
 		f << "    (note: reg_factor is zero; regularization phi reported but not used)" << endl;
 		cout  << "    (note: reg_factor is zero; regularization phi reported but not used)" << endl;
-	}
+	}*/
+	f << "     current reg_factor: " << *reg_factor << endl;
+	cout << "     current reg_factor: " << *reg_factor << endl;
+	f << "     note: regularization phi reported above does not " << endl;
+	f << "           include the effects of reg_factor, " << endl;
+	f << "           but composite phi does." << endl;
+	cout << "     note: regularization phi reported above does not " << endl;
+	cout << "           include the effects of reg_factor, " << endl;
+	cout << "           but composite phi does." << endl;
 	f << endl << endl;
 	f.flush();
 }
@@ -476,7 +486,7 @@ map<string, Eigen::VectorXd> PhiHandler::calc_meas(ObservationEnsemble & oe, Eig
 	return phi_map;
 }
 
-map<string, Eigen::VectorXd> PhiHandler::calc_regul(ParameterEnsemble & pe, double _reg_fac)
+map<string, Eigen::VectorXd> PhiHandler::calc_regul(ParameterEnsemble & pe)
 {	
 	map<string, Eigen::VectorXd> phi_map;
 	vector<string> real_names = pe.get_real_names();
@@ -491,7 +501,8 @@ map<string, Eigen::VectorXd> PhiHandler::calc_regul(ParameterEnsemble & pe, doub
 		diff = diff_mat.row(i);
 		diff = diff.cwiseProduct(diff);
 		diff = diff.cwiseProduct(parcov_inv_diag);
-		phi_map[real_names[i]] = _reg_fac * diff;
+		//phi_map[real_names[i]] = _reg_fac * diff;
+		phi_map[real_names[i]] = diff;
 	}
 	return phi_map;
 }
@@ -583,7 +594,7 @@ map<string, double> PhiHandler::calc_composite(map<string, double> &_meas, map<s
 		{
 			mea = _meas[orn];
 			reg = _regul[prn];
-			phi_map[orn] = mea + reg;
+			phi_map[orn] = mea + (reg * *reg_factor);
 		}
 	}
 	return phi_map;
@@ -1015,11 +1026,12 @@ void IterEnsembleSmoother::initialize()
 	error_min_reals = 0;
 	if (pest_scenario.get_control_info().pestmode == ControlInfo::PestMode::REGUL)
 	{
-		message(1, "'pestmode' == 'regularization', in pestpp-ies, this in controlled with the ++ies_reg_fac() argument");
+		message(1, "WARNING: 'pestmode' == 'regularization', in pestpp-ies, this is controlled with the ++ies_reg_factor argument, resetting to 'estimation'");
+		//throw_ies_error("'pestmode' == 'regularization', please reset to 'estimation'");
 	}
 	else if (pest_scenario.get_control_info().pestmode == ControlInfo::PestMode::UNKNOWN)
 	{
-		message(1,"unrecognized 'pestmode', using 'estimation'");
+		message(1,"WARNING: unrecognized 'pestmode', using 'estimation'");
 	}
 	else if ((pest_scenario.get_control_info().pestmode == ControlInfo::PestMode::PARETO))
 	{
@@ -1040,6 +1052,12 @@ void IterEnsembleSmoother::initialize()
 		}
 		//throw_ies_error("pareto mode not finished");
 	}
+
+	if (pest_scenario.get_ctl_ordered_pi_names().size() > 0)
+	{
+		message(1, "WARNING: prior information equations not supported in pestpp-ies, ignoring...");
+	}
+
 	lam_mults = pest_scenario.get_pestpp_options().get_ies_lam_mults();
 	if (lam_mults.size() == 0)
 		lam_mults.push_back(1.0);
@@ -1591,13 +1609,14 @@ void IterEnsembleSmoother::pareto_iterate_2_solution()
 	double init_lam = last_best_lam, init_mean = 1.0e+30, init_std = 1.0e+30;
 
 	message(0, "starting pareto analysis");
-	message(1, "initial pareto wfac", pi.wf_start);
-	message(0, "starting initial pareto iterations", pi.niter_start);
+	message(0, "initial pareto wfac", pi.wf_start);
+	message(1, "starting initial pareto iterations", pi.niter_start);
 	adjust_pareto_weight(pi.obsgroup, pi.wf_start);
+	last_best_lam = init_lam, last_best_mean = init_mean, last_best_std = init_std;
 	for (int i = 0; i < pi.niter_start; i++)
 	{
 		iter++;
-		message(0, "starting solve for iteration:", iter);
+		message(1, "starting solve for iteration:", iter);
 		ss << "starting solve for iteration: " << iter;
 		performance_log->log_event(ss.str());
 		solve();
@@ -1631,12 +1650,12 @@ void IterEnsembleSmoother::pareto_iterate_2_solution()
 		wfacs.push_back(wfac);
 	}
 	//while (wfac < pi.wf_fin)
-	pe = pe_base;
-	oe = oe_base;
+	//pe = pe_base;
+	//oe = oe_base;
 	for (auto &wfac : wfacs)
 	{
 		last_best_lam = init_lam, last_best_mean = init_mean, last_best_std = init_std;
-		message(1, "using pareto wfac", wfac);
+		message(0, "using pareto wfac", wfac);
 		message(0, "starting pareto iterations", pi.niter_gen);
 		adjust_pareto_weight(pi.obsgroup, wfac);
 		for (int i = 0; i < pi.niter_gen; i++)
@@ -1654,13 +1673,15 @@ void IterEnsembleSmoother::pareto_iterate_2_solution()
 			ph.write(iter, run_mgr_ptr->get_total_runs(),false);
 		}
 		ph.write_group(iter, run_mgr_ptr->get_total_runs(), vector<double>());
-		pe = pe_base;
-		oe = oe_base;
+		//pe = pe_base;
+		//oe = oe_base;
 	}
 	message(1, "final pareto wfac", pi.niter_fin);
 	message(0, "starting final pareto iterations", pi.niter_fin);
 	adjust_pareto_weight(pi.obsgroup, pi.wf_fin);
 	last_best_lam = init_lam, last_best_mean = init_mean, last_best_std = init_std;
+	//pe = pe_base;
+	//oe = oe_base;
 	for (int i = 0; i < pi.niter_fin; i++)
 	{
 		iter++;
@@ -2162,11 +2183,25 @@ bool IterEnsembleSmoother::solve()
 		{
 			throw_ies_error(string("all realization dropped after finishing subset runs...something might be wrong..."));
 		}
+		ph.update(oe_lam_best, pe_lams[best_idx]);
+		best_mean = ph.get_mean(PhiHandler::phiType::COMPOSITE);
+		best_std = ph.get_std(PhiHandler::phiType::COMPOSITE);
+		message(1, "phi summary for entire ensemble using lambda,scale_fac ", vector<double>({ lam_vals[best_idx],scale_vals[best_idx] }));
+		ph.report();
+	}
+	else
+	{ 
+		ph.update(oe_lam_best, pe_lams[best_idx]);
+		best_mean = ph.get_mean(PhiHandler::phiType::COMPOSITE);
+		best_std = ph.get_std(PhiHandler::phiType::COMPOSITE);
 	}
 	
 	ph.update(oe_lam_best, pe_lams[best_idx]);
 	best_mean = ph.get_mean(PhiHandler::phiType::COMPOSITE);
 	best_std = ph.get_std(PhiHandler::phiType::COMPOSITE);
+	message(1, "last best mean phi * acceptable phi factor: ", last_best_mean * acc_fac);
+	message(1, "current best mean phi: ", best_mean);
+
 	if (best_mean < last_best_mean * acc_fac)
 	{
 		message(0,"updating parameter ensemble");
