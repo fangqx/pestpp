@@ -351,12 +351,16 @@ void PhiHandler::report()
 	}*/
 	f << "     current reg_factor: " << *reg_factor << endl;
 	cout << "     current reg_factor: " << *reg_factor << endl;
-	f << "     note: regularization phi reported above does not " << endl;
-	f << "           include the effects of reg_factor, " << endl;
-	f << "           but composite phi does." << endl;
-	cout << "     note: regularization phi reported above does not " << endl;
-	cout << "           include the effects of reg_factor, " << endl;
-	cout << "           but composite phi does." << endl;
+	if (*reg_factor != 0.0)
+	{
+		
+		f << "     note: regularization phi reported above does not " << endl;
+		f << "           include the effects of reg_factor, " << endl;
+		f << "           but composite phi does." << endl;
+		cout << "     note: regularization phi reported above does not " << endl;
+		cout << "           include the effects of reg_factor, " << endl;
+		cout << "           but composite phi does." << endl;
+	}
 	f << endl << endl;
 	f.flush();
 }
@@ -2017,7 +2021,7 @@ bool IterEnsembleSmoother::solve()
 			if (!pest_scenario.get_pestpp_options().get_ies_save_lambda_en())
 				continue;
 			ss.str("");
-			ss << file_manager.get_base_filename() << "." << iter << "." << cur_lam << ".lambda" << sf << ".scale.par";
+			ss << file_manager.get_base_filename() << "." << iter << "." << cur_lam << ".lambda." << sf << ".scale.par";
 
 			if (pest_scenario.get_pestpp_options().get_ies_save_binary())
 			{
