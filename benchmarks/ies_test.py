@@ -4,6 +4,7 @@ import shutil
 import platform
 import numpy as np
 import pandas as pd
+import platform
 import matplotlib.pyplot as plt
 import pyemu
 
@@ -29,7 +30,12 @@ ies_vars = ["ies_par_csv", "ies_obs_csv", "ies_restart_obs_csv",
             "ies_use_approx", "ies_use_prior_scaling", "ies_reg_factor",
             "ies_lambda_mults", "ies_init_lambda","ies_include_base","ies_subset_size"]
 
-exe_path = os.path.join("..", "..", "..", "exe", "windows", "x64", "Release", "pestpp-ies.exe")
+if "windows" in platform.platform().lower():
+    exe_path = os.path.join("..", "..", "..", "exe", "windows", "x64", "Release", "pestpp-ies.exe")
+elif "darwin" in platform.platform().lower():
+    exe_path = os.path.join("..", "..", "..", "exe", "mac", "pestpp-ies")
+else:
+    exe_path = os.path.join("..", "..", "..", "exe", "linux", "pestpp-ies")
 
 noptmax = 3
 
@@ -701,9 +707,9 @@ def test_chenoliver():
     
 
     pyemu.helpers.start_slaves(template_d,exe_path,"pest.pst",num_slaves=20,
-        master_dir=test_d,slave_root=model_d,port=4005)
-    df_full_obs = pd.read_csv(os.path.join(test_d,"pest.{0}.obs.csv.".format(noptmax)),index_col=0)
-    df_full_par = pd.read_csv(os.path.join(test_d,"pest.{0}.par.csv.".format(noptmax)),index_col=0)
+        master_dir=test_d,slave_root=model_d,port=4005,silent_master=True)
+    df_full_obs = pd.read_csv(os.path.join(test_d,"pest.{0}.obs.csv".format(noptmax)),index_col=0)
+    df_full_par = pd.read_csv(os.path.join(test_d,"pest.{0}.par.csv".format(noptmax)),index_col=0)
 
     shutil.rmtree(test_d)
     pst.pestpp_options = {}
@@ -717,9 +723,9 @@ def test_chenoliver():
     pst.write(os.path.join(template_d,"pest.pst"))
 
     pyemu.helpers.start_slaves(template_d,exe_path,"pest.pst",num_slaves=20,
-        master_dir=test_d,slave_root=model_d,port=4005)
-    df_approx_obs = pd.read_csv(os.path.join(test_d,"pest.{0}.obs.csv.".format(noptmax)),index_col=0)
-    df_approx_par = pd.read_csv(os.path.join(test_d,"pest.{0}.par.csv.".format(noptmax)),index_col=0)
+        master_dir=test_d,slave_root=model_d,port=4005,silent_master=True)
+    df_approx_obs = pd.read_csv(os.path.join(test_d,"pest.{0}.obs.csv".format(noptmax)),index_col=0)
+    df_approx_par = pd.read_csv(os.path.join(test_d,"pest.{0}.par.csv".format(noptmax)),index_col=0)
 
     ax = plt.subplot(211)
     ax2 = plt.subplot(212)
@@ -754,9 +760,9 @@ def test_chenoliver():
     pst.write(os.path.join(template_d,"pest.pst"))
 
     pyemu.helpers.start_slaves(template_d,exe_path,"pest.pst",num_slaves=25,
-        master_dir=test_d,slave_root=model_d,port=4005)
-    df_full_obs = pd.read_csv(os.path.join(test_d,"pest.{0}.obs.csv.".format(noptmax)),index_col=0)
-    df_full_par = pd.read_csv(os.path.join(test_d,"pest.{0}.par.csv.".format(noptmax)),index_col=0)
+        master_dir=test_d,slave_root=model_d,port=4005,silent_master=True)
+    df_full_obs = pd.read_csv(os.path.join(test_d,"pest.{0}.obs.csv".format(noptmax)),index_col=0)
+    df_full_par = pd.read_csv(os.path.join(test_d,"pest.{0}.par.csv".format(noptmax)),index_col=0)
 
     shutil.rmtree(test_d)
     pst.pestpp_options = {}
@@ -770,9 +776,9 @@ def test_chenoliver():
     pst.write(os.path.join(template_d,"pest.pst"))
 
     pyemu.helpers.start_slaves(template_d,exe_path,"pest.pst",num_slaves=25,
-        master_dir=test_d,slave_root=model_d,port=4005)
-    df_approx_obs = pd.read_csv(os.path.join(test_d,"pest.{0}.obs.csv.".format(noptmax)),index_col=0)
-    df_approx_par = pd.read_csv(os.path.join(test_d,"pest.{0}.par.csv.".format(noptmax)),index_col=0)
+        master_dir=test_d,slave_root=model_d,port=4005,silent_master=True)
+    df_approx_obs = pd.read_csv(os.path.join(test_d,"pest.{0}.obs.csv".format(noptmax)),index_col=0)
+    df_approx_par = pd.read_csv(os.path.join(test_d,"pest.{0}.par.csv".format(noptmax)),index_col=0)
 
     ax = plt.subplot(211)
     ax2 = plt.subplot(212)
@@ -930,7 +936,7 @@ if __name__ == "__main__":
     #compare_pyemu()
     #tenpar_subset_test()
     #tenpar_full_cov_test()
-    test_freyberg_ineq()
+    #test_freyberg_ineq()
     
     # # invest()
     #compare_suite("ies_10par_xsec")
