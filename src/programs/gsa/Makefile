@@ -9,8 +9,7 @@ OBJECTS := \
     MorrisMethod \
     PooledVariance \
     sobol \
-    Stats \
-    TornadoPlot
+    Stats
 OBJECTS := $(addsuffix $(OBJ_EXT),$(OBJECTS))
 
 

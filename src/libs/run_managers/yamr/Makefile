@@ -4,8 +4,8 @@ include $(top_builddir)/global.mak
 
 LIB := $(LIB_PRE)rm_yamr$(LIB_EXT)
 OBJECTS := \
-    RunManagerYAMR \
-    YamrSlave
+    RunManagerPanther \
+    PantherSlave
 OBJECTS := $(addsuffix $(OBJ_EXT),$(OBJECTS))
 
 
