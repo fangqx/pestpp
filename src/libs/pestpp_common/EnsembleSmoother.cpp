@@ -13,12 +13,13 @@
 
 PhiHandler::PhiHandler(Pest *_pest_scenario, FileManager *_file_manager,
 	ObservationEnsemble *_oe_base, ParameterEnsemble *_pe_base,
-	Covariance *_parcov, double *_reg_factor)	
+	Covariance *_parcov, double *_reg_factor, ObservationEnsemble *_weights)	
 {
 	pest_scenario = _pest_scenario;
 	file_manager = _file_manager;
 	oe_base = _oe_base;
 	pe_base = _pe_base;
+	weights = _weights;
 
 	//check for inequality constraints
 	//for (auto &og : pest_scenario.get_ctl_ordered_obs_group_names())
@@ -133,6 +134,9 @@ Eigen::VectorXd PhiHandler::get_q_vector()
 	Eigen::VectorXd q;
 	//vector<string> act_obs_names = pest_scenario->get_ctl_ordered_nz_obs_names();
 	vector<string> act_obs_names = oe_base->get_var_names();
+
+	/*if (act_obs_names.size() == 0)
+		act_obs_names = oe_base->get_var_names();*/
 	q.resize(act_obs_names.size());
 	double w;
 	for (int i = 0; i < act_obs_names.size(); i++)
@@ -472,11 +476,15 @@ vector<int> PhiHandler::get_idxs_greater_than(double bad_phi, ObservationEnsembl
 map<string, Eigen::VectorXd> PhiHandler::calc_meas(ObservationEnsemble & oe, Eigen::VectorXd &q_vec)
 {
 	map<string, Eigen::VectorXd> phi_map;
-	Eigen::VectorXd oe_base_vec, oe_vec, diff;
+	Eigen::VectorXd oe_base_vec, oe_vec, diff,w_vec;
 	//Eigen::VectorXd q = get_q_vector();
 	vector<string> act_obs_names = pest_scenario->get_ctl_ordered_nz_obs_names();
 	vector<string> base_real_names = oe_base->get_real_names(), oe_real_names = oe.get_real_names();
 	vector<string>::iterator start = base_real_names.begin(), end = base_real_names.end();
+
+	Eigen::MatrixXd w_mat;
+	if (weights->shape().first > 0)
+		w_mat = weights->get_eigen(vector<string>(), oe_base->get_var_names());
 	double phi;
 	string rname;
 
@@ -488,7 +496,14 @@ map<string, Eigen::VectorXd> PhiHandler::calc_meas(ObservationEnsemble & oe, Eig
 		if (find(start, end, rname) == end)
 			continue;
 		diff = resid.row(i);
-		diff = diff.cwiseProduct(q_vec);
+		
+		if (weights->shape().first == 0)
+			diff = diff.cwiseProduct(q_vec);
+		else
+		{
+			w_vec = w_mat.row(i);
+			diff = diff.cwiseProduct(w_vec);
+		}
 		phi = (diff.cwiseProduct(diff)).sum();
 		phi_map[rname] = diff.cwiseProduct(diff);
 	}
@@ -621,6 +636,7 @@ IterEnsembleSmoother::IterEnsembleSmoother(Pest &_pest_scenario, FileManager &_f
 {
 	pe.set_pest_scenario(&pest_scenario);
 	oe.set_pest_scenario(&pest_scenario);
+	weights.set_pest_scenario(&pest_scenario);
 }
 
 void IterEnsembleSmoother::throw_ies_error(string message)
@@ -695,7 +711,7 @@ bool IterEnsembleSmoother::initialize_pe(Covariance &cov)
 
 		pe.transform_ip(ParameterEnsemble::transStatus::NUM);
 
-		if (pest_scenario.get_pestpp_options().get_ies_num_reals_passed())
+		if (pp_args.find("IES_NUM_REALS") != pp_args.end())
 		{
 			int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
 			if (num_reals < pe.shape().first)
@@ -791,6 +807,58 @@ void IterEnsembleSmoother::add_bases()
 			oe.append("base", obs);
 		}
 	}
+
+	//check that 'base' isn't already in ensemble
+	rnames = weights.get_real_names();
+	if (rnames.size() == 0)
+		return;
+	if (find(rnames.begin(), rnames.end(), "base") != rnames.end())
+	{
+		message(1, "'base' realization already in weights ensemble, ignoring '++ies_include_base'");
+	}
+	else
+	{
+		//Observations obs = pest_scenario.get_ctl_observations();
+		ObservationInfo oinfo = pest_scenario.get_ctl_observation_info();
+		Eigen::VectorXd q;
+		//vector<string> act_obs_names = pest_scenario->get_ctl_ordered_nz_obs_names();
+		vector<string> vnames = weights.get_var_names();
+		q.resize(vnames.size());
+		double w;
+		for (int i = 0; i < vnames.size(); i++)
+		{
+			q(i) = oinfo.get_weight(vnames[i]);
+		}
+		
+		Observations wobs(vnames, q);
+		if (inpar)
+		{
+			vector<string> prnames = pe.get_real_names();
+
+			int idx = find(prnames.begin(), prnames.end(), "base") - prnames.begin();
+			//cout << idx << "," << rnames.size() << endl;
+			string oreal = rnames[idx];
+			stringstream ss;
+			ss << "warning: 'base' realization in par ensenmble but not in weights ensemble," << endl;
+			ss << "         replacing weights realization '" << oreal << "' with 'base'";
+			string mess = ss.str();
+			message(1, mess);
+			vector<string> drop;
+			drop.push_back(oreal);
+			weights.drop_rows(drop);
+			weights.append("base", wobs);
+			//rnames.insert(rnames.begin() + idx, string("base"));
+			rnames[idx] = "base";
+			weights.reorder(rnames, vector<string>());
+		}
+		else
+		{
+			message(1, "adding 'base' weight values to weights");
+			
+			
+			weights.append("base", wobs);
+		}
+	}
 }
 
 bool IterEnsembleSmoother::initialize_oe(Covariance &cov)
@@ -855,7 +923,7 @@ bool IterEnsembleSmoother::initialize_oe(Covariance &cov)
 			ss << "unrecognized obs ensemble extension " << obs_ext << ", looing for csv, jcb, or jco";
 			throw_ies_error(ss.str());
 		}
-		if (pest_scenario.get_pestpp_options().get_ies_num_reals_passed())
+		if (pp_args.find("IES_NUM_REALS") != pp_args.end())
 		{
 			int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
 			if (num_reals < oe.shape().first)
@@ -1019,12 +1087,330 @@ void IterEnsembleSmoother::sanity_checks()
 	//cout << endl << endl;
 }
 
+void IterEnsembleSmoother::initialize_restart_oe()
+{
+	stringstream ss;
+	string obs_restart_csv = pest_scenario.get_pestpp_options().get_ies_obs_restart_csv();
+	performance_log->log_event("restart IES with existing obs ensemble: " + obs_restart_csv);
+	message(1, "restarting with existing obs ensemble", obs_restart_csv);
+	string obs_ext = pest_utils::lower_cp(obs_restart_csv).substr(obs_restart_csv.size() - 3, obs_restart_csv.size());
+	if (obs_ext.compare("csv") == 0)
+	{
+		message(1, "loading restart obs ensemble from csv file", obs_restart_csv);
+		try
+		{
+			oe.from_csv(obs_restart_csv);
+		}
+		catch (const exception &e)
+		{
+			ss << "error processing restart obs csv: " << e.what();
+			throw_ies_error(ss.str());
+		}
+		catch (...)
+		{
+			throw_ies_error(string("error processing restart obs csv"));
+		}
+	}
+	else if ((obs_ext.compare("jcb") == 0) || (obs_ext.compare("jco") == 0))
+	{
+		message(1, "loading restart obs ensemble from binary file", obs_restart_csv);
+		try
+		{
+			oe.from_binary(obs_restart_csv);
+		}
+		catch (const exception &e)
+		{
+			ss << "error processing restart obs binary file: " << e.what();
+			throw_ies_error(ss.str());
+		}
+		catch (...)
+		{
+			throw_ies_error(string("error processing restart obs binary file"));
+		}
+	}
+	else
+	{
+		ss << "unrecognized restart obs ensemble extension " << obs_ext << ", looing for csv, jcb, or jco";
+		throw_ies_error(ss.str());
+	}
+
+	if (pp_args.find("IES_NUM_REALS") != pp_args.end())
+	{
+		int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
+		if (num_reals < oe.shape().first)
+		{
+			message(1, "ies_num_reals arg passed, truncated restart obs ensemble to ", num_reals);
+			vector<string> keep_names, real_names = oe.get_real_names();
+			for (int i = 0; i<num_reals; i++)
+			{
+				keep_names.push_back(real_names[i]);
+			}
+			oe.keep_rows(keep_names);
+		}
+	}
+
+	//check that restart oe is in sync
+	vector<string> oe_real_names = oe.get_real_names(), oe_base_real_names = oe_base.get_real_names();
+	vector<string>::const_iterator start, end;
+	vector<string> missing;
+	start = oe_base_real_names.begin();
+	end = oe_base_real_names.end();
+	for (auto &rname : oe_real_names)
+		if (find(start, end, rname) == end)
+			missing.push_back(rname);
+	if (missing.size() > 0)
+	{
+		ss << "the following realization names were not found in the restart obs csv:";
+		for (auto &m : missing)
+			ss << m << ",";
+		throw_ies_error(ss.str());
+
+	}
+
+
+	if (oe.shape().first < oe_base.shape().first) //maybe some runs failed...
+	{
+		//find which realizations are missing and reorder oe_base, pe and pe_base
+		message(1, "shape mismatch detected with restart obs ensemble...checking for compatibility");
+		vector<string> pe_real_names;
+		start = oe_base_real_names.begin();
+		end = oe_base_real_names.end();
+		vector<string>::const_iterator it;
+		int iit;
+		for (int i = 0; i < oe.shape().first; i++)
+		{
+			it = find(start, end, oe_real_names[i]);
+			if (it != end)
+			{
+				iit = it - start;
+				pe_real_names.push_back(pe_org_real_names[iit]);
+			}
+		}
+		try
+		{
+			oe_base.reorder(oe_real_names, vector<string>());
+		}
+		catch (exception &e)
+		{
+			ss << "error reordering oe_base with restart oe:" << e.what();
+			throw_ies_error(ss.str());
+		}
+		catch (...)
+		{
+			throw_ies_error(string("error reordering oe_base with restart oe"));
+		}
+		try
+		{
+			pe.reorder(pe_real_names, vector<string>());
+		}
+		catch (exception &e)
+		{
+			ss << "error reordering pe with restart oe:" << e.what();
+			throw_ies_error(ss.str());
+		}
+		catch (...)
+		{
+			throw_ies_error(string("error reordering pe with restart oe"));
+		}
+	}
+	else if (oe.shape().first > oe_base.shape().first) //something is wrong
+	{
+		ss << "restart oe has too many rows: " << oe.shape().first << " compared to oe_base: " << oe_base.shape().first;
+		throw_ies_error(ss.str());
+	}
+}
+
+
+void IterEnsembleSmoother::initialize_weights()
+{
+	string weights_csv = pest_scenario.get_pestpp_options().get_ies_weight_csv();
+	//message(1, "loading weights ensemble from ", weights_csv);
+
+	stringstream ss;
+	string obs_ext = pest_utils::lower_cp(weights_csv).substr(weights_csv.size() - 3, weights_csv.size());
+	if (obs_ext.compare("csv") == 0)
+	{
+		message(1, "loading weights ensemble from csv file", weights_csv);
+		try
+		{
+			weights.from_csv(weights_csv);
+		}
+		catch (const exception &e)
+		{
+			ss << "error processing weights csv: " << e.what();
+			throw_ies_error(ss.str());
+		}
+		catch (...)
+		{
+			throw_ies_error(string("error processing weights csv"));
+		}
+	}
+	else if ((obs_ext.compare("jcb") == 0) || (obs_ext.compare("jco") == 0))
+	{
+		message(1, "loading weights ensemble from binary file", weights_csv);
+		try
+		{
+			weights.from_binary(weights_csv);
+		}
+		catch (const exception &e)
+		{
+			ss << "error processing weights binary file: " << e.what();
+			throw_ies_error(ss.str());
+		}
+		catch (...)
+		{
+			throw_ies_error(string("error processing weights binary file"));
+		}
+	}
+	else
+	{
+		ss << "unrecognized weights ensemble extension " << obs_ext << ", looking for csv, jcb, or jco";
+		throw_ies_error(ss.str());
+	}
+
+	if (pp_args.find("IES_NUM_REALS") != pp_args.end())
+	{
+		int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
+		if (num_reals < oe.shape().first)
+		{
+			message(1, "ies_num_reals arg passed, truncated weights ensemble to ", num_reals);
+			vector<string> keep_names, real_names = weights.get_real_names();
+			for (int i = 0; i<num_reals; i++)
+			{
+				keep_names.push_back(real_names[i]);
+			}
+			weights.keep_rows(keep_names);
+		}
+	}
+
+	//check that restart oe is in sync
+	vector<string> weights_real_names = weights.get_real_names(), oe_real_names = oe.get_real_names();
+	vector<string>::const_iterator start, end;
+	vector<string> missing;
+	start = oe_real_names.begin();
+	end = oe_real_names.end();
+	for (auto &rname : weights_real_names)
+		if (find(start, end, rname) == end)
+			missing.push_back(rname);
+	if (missing.size() > 0)
+	{
+		ss << "the following realization names were not found in the weight csv:";
+		for (auto &m : missing)
+			ss << m << ",";
+		throw_ies_error(ss.str());
+
+	}
+
+
+	if (weights.shape().first > oe.shape().first) //something is wrong
+	{
+		ss << "weight ensemble has too many rows: " << weights.shape().first << " compared to oe: " << oe.shape().first;
+		throw_ies_error(ss.str());
+	}
+	vector<string> weights_names = weights.get_var_names();
+	set<string> weights_set(weights_names.begin(), weights_names.end());
+	for (auto &name : oe.get_var_names())
+	{
+		if (weights_set.find(name) == weights_set.end())
+			missing.push_back(name);
+	}
+
+	if (missing.size() > 0)
+	{
+		ss << "weights ensemble is missing the following observations: ";
+		for (auto m : missing)
+			ss << ',' << m;
+		throw_ies_error(ss.str());
+	}
+
+}
+
+void IterEnsembleSmoother::initialize_parcov()
+{
+	stringstream ss;
+	performance_log->log_event("initializing parcov");
+	string parcov_filename = pest_scenario.get_pestpp_options().get_parcov_filename();
+
+	if (parcov_filename.size() == 0)
+	{
+		//if a par ensemble arg wasn't passed, use par bounds, otherwise, construct diagonal parcov from par ensemble later
+		if (!pest_scenario.get_pestpp_options().get_ies_use_empirical_prior())
+		{
+			message(1, "initializing prior parameter covariance matrix from parameter bounds");
+			message(1, "using par_sigma_range (number of standard deviations that par bounds represent):", pest_scenario.get_pestpp_options().get_par_sigma_range());
+			parcov.from_parameter_bounds(pest_scenario);
+		}
+	}
+	else
+	{
+		message(1, "initializing prior parameter covariance matrix from file", parcov_filename);
+		string extension = parcov_filename.substr(parcov_filename.size() - 3, 3);
+		pest_utils::upper_ip(extension);
+		if (extension.compare("COV") == 0)
+			parcov.from_ascii(parcov_filename);
+		else if ((extension.compare("JCO") == 0) || (extension.compare("JCB") == 0))
+			parcov.from_binary(parcov_filename);
+		else if (extension.compare("UNC") == 0)
+			parcov.from_uncertainty_file(parcov_filename);
+		else
+			throw_ies_error("unrecognized parcov_filename extension: " + extension);
+	}
+	if (parcov.e_ptr()->rows() > 0)
+		parcov = parcov.get(act_par_names);
+
+}
+
+
+void IterEnsembleSmoother::initialize_obscov()
+{
+	//obs ensemble
+	message(1, "initializing observation noise covariance matrix");
+	string obscov_filename = pest_scenario.get_pestpp_options().get_obscov_filename();
+	if (obscov_filename.size() == 0)
+	{
+		message(1, "initializing obseravtion noise covariance matrix from observation weights");
+		obscov.from_observation_weights(pest_scenario);	
+	}
+	else
+	{
+		message(1, "initializing observation noise covariance matrix from file", obscov_filename);
+		string extension = obscov_filename.substr(obscov_filename.size() - 3, 3);
+		pest_utils::upper_ip(extension);
+		if (extension.compare("COV") == 0)
+			parcov.from_ascii(obscov_filename);
+		else if ((extension.compare("JCO") == 0) || (extension.compare("JCB") == 0))
+			parcov.from_binary(obscov_filename);
+		else if (extension.compare("UNC") == 0)
+			parcov.from_uncertainty_file(obscov_filename);
+		else
+			throw_ies_error("unrecognized obscov_filename extension: " + extension);
+	}
+	obscov = obscov.get(act_obs_names);
+
+
+
+}
+
+
 void IterEnsembleSmoother::initialize()
 {
 	message(0, "initializing");
+	pp_args = pest_scenario.get_pestpp_options().get_passed_args();
+
+
+	//set some defaults
+	PestppOptions *ppo = pest_scenario.get_pestpp_options_ptr();
 	
+	if (pp_args.find("IES_LAMBDA_MULTS") == pp_args.end())
+		ppo->set_ies_lam_mults(vector<double>{0.1, 0.5, 1.0, 2.0, 5.0});
+	if (pp_args.find("IES_SUBSET_SIZE") == pp_args.end())
+		ppo->set_ies_subset_size(4);
+	if (pp_args.find("LAMBDA_SCALE_FAC") == pp_args.end())
+		ppo->set_lambda_scale_vec(vector<double>{0.5, 0.75, 0.95, 1.0, 1.1});
+
+
 	verbose_level = pest_scenario.get_pestpp_options_ptr()->get_ies_verbose_level();
-	if (pest_scenario.get_n_adj_par() > 1e6)
+	if (pest_scenario.get_n_adj_par() >= 1e6)
 	{
 		message(0, "welcome to the 1M par club, great choice!");
 	}
@@ -1034,8 +1420,9 @@ void IterEnsembleSmoother::initialize()
 	last_best_std = 1.0e+30;
 	lambda_max = 1.0E+30;
 	lambda_min = 1.0E-30;
-	warn_min_reals = 30;
-	error_min_reals = 0;
+	warn_min_reals = 10;
+	error_min_reals = 2;
+	consec_bad_lambda_cycles = 0;
 
 	act_obs_names = pest_scenario.get_ctl_ordered_nz_obs_names();
 	act_par_names = pest_scenario.get_ctl_ordered_adj_par_names();
@@ -1101,12 +1488,15 @@ void IterEnsembleSmoother::initialize()
 	if (lam_mults.size() == 0)
 		lam_mults.push_back(1.0);
 	message(1, "using lambda multipliers: ", lam_mults);
+	vector<double> scale_facs = pest_scenario.get_pestpp_options().get_lambda_scale_vec();
+	message(1, "usnig lambda scaling factors: ", scale_facs);
 	double acc_fac = pest_scenario.get_pestpp_options().get_ies_accept_phi_fac();
 	message(1, "acceptable phi factor: ", acc_fac);
 	double inc_fac = pest_scenario.get_pestpp_options().get_ies_lambda_inc_fac();
 	message(1, "lambda increase factor: ", inc_fac);
 	double dec_fac = pest_scenario.get_pestpp_options().get_ies_lambda_dec_fac();
 	message(1, "lambda decrease factor: ", dec_fac);
+	message(1, "max run fail: ", ppo->get_max_run_fail());
 
 	sanity_checks();
 	
@@ -1114,7 +1504,8 @@ void IterEnsembleSmoother::initialize()
 	if (verbose_level > 1)
 		echo = true;
 
-	
+	initialize_parcov();
+	initialize_obscov();
 
 	subset_size = pest_scenario.get_pestpp_options().get_ies_subset_size();
 	reg_factor = pest_scenario.get_pestpp_options().get_ies_reg_factor();
@@ -1128,35 +1519,6 @@ void IterEnsembleSmoother::initialize()
 	int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
 	
 	stringstream ss;
-	performance_log->log_event("load parcov");
-	string parcov_filename = pest_scenario.get_pestpp_options().get_parcov_filename();
-	
-	if (parcov_filename.size() == 0)
-	{
-		//if a par ensemble arg wasn't passed, use par bounds, otherwise, construct diagonal parcov from par ensemble later
-		if (!pest_scenario.get_pestpp_options().get_ies_use_empirical_prior())
-		{
-			message(1, "initializing prior parameter covariance matrix from parameter bounds");
-			message(1, "using par_sigma_range (number of standard deviations that par bounds represent):", pest_scenario.get_pestpp_options().get_par_sigma_range());
-			parcov.from_parameter_bounds(pest_scenario);
-		}
-	}
-	else
-	{
-		message(1, "initializing prior parameter covariance matrix from file", parcov_filename);
-		string extension = parcov_filename.substr(parcov_filename.size() - 3, 3);
-		pest_utils::upper_ip(extension);
-		if (extension.compare("COV") == 0)
-			parcov.from_ascii(parcov_filename);
-		else if ((extension.compare("JCO") == 0) || (extension.compare("JCB") == 0))
-			parcov.from_binary(parcov_filename);
-		else if (extension.compare("UNC") == 0)
-			parcov.from_uncertainty_file(parcov_filename);
-		else
-			throw_ies_error("unrecognized parcov_filename extension: " + extension);
-	}	
-	if (parcov.e_ptr()->rows() > 0)
-		parcov = parcov.get(act_par_names);
 	
 	bool pe_drawn = initialize_pe(parcov);
 
@@ -1178,18 +1540,38 @@ void IterEnsembleSmoother::initialize()
 		message(1, "not using prior parameter covariance matrix scaling");
 	}
 
-	//obs ensemble
-	message(1, "initializing observation noise covariance matrix from observation weights");
-	Covariance obscov;
-	obscov.from_observation_weights(pest_scenario);
-	obscov = obscov.get(act_obs_names);
 	bool oe_drawn = initialize_oe(obscov);
+
+	try
+	{
+		pe.check_for_dups();
+	}
+	catch (const exception &e)
+	{
+		string message = e.what();
+		throw_ies_error("error in parameter ensemble: " + message);
+	}
+
+	try
+	{
+		oe.check_for_dups();
+	}
+	catch (const exception &e)
+	{
+		string message = e.what();
+		throw_ies_error("error in observation ensemble: " + message);
+	}
 
 	if (pe.shape().first != oe.shape().first)
 	{
 		ss.str("");
 		ss << "parameter ensemble rows (" << pe.shape().first << ") not equal to observation ensemble rows (" << oe.shape().first << ")";
 		throw_ies_error(ss.str());
+	}
+
+	if (ppo->get_ies_weight_csv().size() > 0)
+	{
+		initialize_weights();
 	}
 
 	//if pareto mode, reset the stochastic obs vals for the pareto obs to the value in the control file
@@ -1219,25 +1601,6 @@ void IterEnsembleSmoother::initialize()
 
 	if (pest_scenario.get_pestpp_options().get_ies_include_base())
 		add_bases();
-
-	/*if (pe_drawn)
-	{
-		stringstream ss;
-		ss << file_manager.get_base_filename() << ".0.par.csv";
-		message(1, "saving initial parameter ensemble to ", ss.str());
-		pe.to_csv(ss.str());
-	}
-
-	if (oe_drawn)
-	{
-		stringstream ss;
-		ss << file_manager.get_base_filename() << ".base.obs.csv";
-		message(1, "saving initial observation ensemble to ", ss.str());
-		oe.to_csv(ss.str());
-	}*/
-
-
-
 
 	ss.str("");
 	if (pest_scenario.get_pestpp_options().get_ies_save_binary())
@@ -1289,8 +1652,15 @@ void IterEnsembleSmoother::initialize()
 		oe_base = _oe;
 		oe_base.reorder(vector<string>(), act_obs_names);
 		//initialize the phi handler
-		ph = PhiHandler(&pest_scenario, &file_manager, &oe_base, &pe_base, &parcov, &reg_factor);
-
+		ph = PhiHandler(&pest_scenario, &file_manager, &oe_base, &pe_base, &parcov, &reg_factor, &weights);
+		if (ph.get_lt_obs_names().size() > 0)
+		{
+			message(1, "less_than inequality defined for observations: ", ph.get_lt_obs_names().size());
+		}
+		if (ph.get_gt_obs_names().size())
+		{
+			message(1, "greater_than inequality defined for observations: ", ph.get_gt_obs_names().size());
+		}
 		message(1, "running mean parameter values");
 
 		vector<int> failed_idxs = run_ensemble(_pe, _oe);
@@ -1320,8 +1690,6 @@ void IterEnsembleSmoother::initialize()
 		use_subset = true;
 	}
 	
-	
-
 	oe_org_real_names = oe.get_real_names();
 	pe_org_real_names = pe.get_real_names();
 
@@ -1373,147 +1741,22 @@ void IterEnsembleSmoother::initialize()
 	}
 	else
 	{
-		performance_log->log_event("restart IES with existing obs ensemble csv: " + obs_restart_csv);
-		message(1, "restarting with existing obs ensemble", obs_restart_csv);
-		string obs_ext = pest_utils::lower_cp(obs_restart_csv).substr(obs_restart_csv.size() - 3, obs_restart_csv.size());
-		if (obs_ext.compare("csv") == 0)
-		{
-			message(1, "loading restart obs ensemble from csv file", obs_restart_csv);
-			try
-			{
-				oe.from_csv(obs_restart_csv);
-			}
-			catch (const exception &e)
-			{
-				ss << "error processing restart obs csv: " << e.what();
-				throw_ies_error(ss.str());
-			}
-			catch (...)
-			{
-				throw_ies_error(string("error processing restart obs csv"));
-			}
-		}
-		else if ((obs_ext.compare("jcb") == 0) || (obs_ext.compare("jco") == 0))
-		{
-			message(1, "loading restart obs ensemble from binary file", obs_restart_csv);
-			try
-			{
-				oe.from_binary(obs_restart_csv);
-			}
-			catch (const exception &e)
-			{
-				ss << "error processing restart obs binary file: " << e.what();
-				throw_ies_error(ss.str());
-			}
-			catch (...)
-			{
-				throw_ies_error(string("error processing restart obs binary file"));
-			}
-		}
-		else
-		{
-			ss << "unrecognized restart obs ensemble extension " << obs_ext << ", looing for csv, jcb, or jco";
-			throw_ies_error(ss.str());
-		}
-
-		if (pest_scenario.get_pestpp_options().get_ies_num_reals_passed())
-		{
-			int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
-			if (num_reals < oe.shape().first)
-			{
-				message(1,"ies_num_reals arg passed, truncated restart obs ensemble to ",num_reals);
-				vector<string> keep_names,real_names=oe.get_real_names();
-				for (int i=0;i<num_reals;i++)
-				{
-					keep_names.push_back(real_names[i]);
-				}
-				oe.keep_rows(keep_names);
-			}
-		}
-
-		//check that restart oe is in sync
-		stringstream ss;
-		vector<string> oe_real_names = oe.get_real_names(),oe_base_real_names = oe_base.get_real_names();
-		vector<string>::const_iterator start, end;
-		vector<string> missing;
-		start = oe_base_real_names.begin();
-		end = oe_base_real_names.end();
-		for (auto &rname : oe_real_names)
-			if (find(start, end, rname) == end)
-				missing.push_back(rname);
-		if (missing.size() > 0)
-		{
-			ss << "the following realization names were not found in the restart obs csv:";
-			for (auto &m : missing)
-				ss << m << ",";
-			throw_ies_error(ss.str());
-
-		}
-
-
-		if (oe.shape().first < oe_base.shape().first) //maybe some runs failed...
-		{		
-			//find which realizations are missing and reorder oe_base, pe and pe_base
-			message(1, "shape mismatch detected with restart obs ensemble...checking for compatibility");
-			vector<string> pe_real_names;
-			start = oe_base_real_names.begin();
-			end = oe_base_real_names.end();	
-			vector<string>::const_iterator it;
-			int iit;
-			for (int i = 0; i < oe.shape().first; i++)
-			{
-				it = find(start, end, oe_real_names[i]);
-				if (it != end)
-				{
-					iit = it - start;
-					pe_real_names.push_back(pe_org_real_names[iit]);
-				}
-			}
-			try
-			{
-				oe_base.reorder(oe_real_names, vector<string>());
-			}
-			catch (exception &e)
-			{
-				ss << "error reordering oe_base with restart oe:" << e.what();
-				throw_ies_error(ss.str());
-			}
-			catch (...)
-			{
-				throw_ies_error(string("error reordering oe_base with restart oe"));
-			}
-			try
-			{
-				pe.reorder(pe_real_names, vector<string>());
-			}
-			catch (exception &e)
-			{
-				ss << "error reordering pe with restart oe:" << e.what();
-				throw_ies_error(ss.str());
-			}
-			catch (...)
-			{
-				throw_ies_error(string("error reordering pe with restart oe"));
-			}
-		}
-		else if (oe.shape().first > oe_base.shape().first) //something is wrong
-		{
-			ss << "restart oe has too many rows: " << oe.shape().first << " compared to oe_base: " << oe_base.shape().first;
-			throw_ies_error(ss.str());
-		}
+		initialize_restart_oe();
 	}
+
+
 
 	performance_log->log_event("calc initial phi");
 	//initialize the phi handler
-	ph = PhiHandler(&pest_scenario, &file_manager, &oe_base, &pe_base, &parcov, &reg_factor);
+	ph = PhiHandler(&pest_scenario, &file_manager, &oe_base, &pe_base, &parcov, &reg_factor, &weights);
 
 	if (ph.get_lt_obs_names().size() > 0)
 	{
-		message(1, "less_than inequality defined for observations: ", ph.get_lt_obs_names());
+		message(1, "less_than inequality defined for observations: ", ph.get_lt_obs_names().size());
 	}
 	if (ph.get_gt_obs_names().size())
 	{
-		message(1, "greater_than inequality defined for observations: ", ph.get_gt_obs_names());
+		message(1, "greater_than inequality defined for observations: ", ph.get_gt_obs_names().size());
 	}
 
 	ph.update(oe, pe);
@@ -1793,8 +2036,74 @@ void IterEnsembleSmoother::iterate_2_solution()
 			last_best_std = ph.get_std(PhiHandler::phiType::COMPOSITE);
 			ph.report();
 			ph.write(iter, run_mgr_ptr->get_total_runs());
+			if (accept)
+				consec_bad_lambda_cycles = 0;
+			else
+				consec_bad_lambda_cycles++;
+			
+			if (should_terminate())
+				break;
 		}
 	}
+}
+
+bool IterEnsembleSmoother::should_terminate()
+{
+	//todo: use ies accept fac here?
+	double phiredstp = pest_scenario.get_control_info().phiredstp;
+	int nphistp = pest_scenario.get_control_info().nphistp;
+	int nphinored = pest_scenario.get_control_info().nphinored;
+	bool phiredstp_sat = false, nphinored_sat = false, consec_sat = false;
+	double phi, ratio;
+	int count = 0;
+	//best_mean_phis = vector<double>{ 1.0,0.8,0.81,0.755,1.1,0.75,0.75,1.2 };
+
+	
+
+	/*if ((!consec_sat )&& (best_mean_phis.size() == 0))
+		return false;*/
+	vector<double>::iterator idx = min_element(best_mean_phis.begin(), best_mean_phis.end());
+	int nphired = (best_mean_phis.end() - idx) - 1;
+	best_phi_yet = best_mean_phis[idx - best_mean_phis.begin()];// *pest_scenario.get_pestpp_options().get_ies_accept_phi_fac();
+	message(0, "phi-based termination criteria check");
+	message(1, "phiredstp: ", phiredstp);
+	message(1, "nphistp: ", nphistp);
+	message(1, "nphinored (also used for consecutive bad lamdba cycles): ", nphinored);
+	message(1, "best mean phi sequence: ", best_mean_phis);
+	message(1, "best phi yet: ", best_phi_yet);
+	message(1, "number of consecutive bad lambda testing cycles: ", consec_bad_lambda_cycles);
+	if (consec_bad_lambda_cycles >= nphinored)
+	{
+		message(1, "number of consecutive bad lambda testing cycles > nphinored");
+		consec_sat = true;
+	}
+			
+	for (auto &phi : best_mean_phis)
+	{
+		ratio = (phi - best_phi_yet) / phi;
+		if (ratio <= phiredstp)
+			count++;
+	}
+	message(1, "number of iterations satisfying phiredstp criteria: ", count);
+	if (count >= nphistp)
+	{
+		message(1, "number iterations satisfying phiredstp criteria > nphistp");
+		phiredstp_sat = true;
+	}
+	
+	message(1, "number of iterations since best yet mean phi: ", nphired);
+	if (nphired >= nphinored)
+	{
+		message(1, "number of iterations since best yet mean phi > nphinored");
+		nphinored_sat = true;
+	}
+	
+	if ((nphinored_sat) || (phiredstp_sat) || (consec_sat))
+	{
+		message(1, "phi-based termination criteria satisfied, all done");
+		return true;
+	}
+	return false;
 }
 
 bool IterEnsembleSmoother::solve()
@@ -2177,7 +2486,9 @@ bool IterEnsembleSmoother::solve()
 	double lam_inc = pest_scenario.get_pestpp_options().get_ies_lambda_inc_fac();
 	double lam_dec = pest_scenario.get_pestpp_options().get_ies_lambda_dec_fac();
 
-	if ((best_idx != -1) && (use_subset) && (subset_size < pe.shape().first))//subset stuff here
+	
+	//subset stuff here
+	if ((best_idx != -1) && (use_subset) && (subset_size < pe.shape().first))
 	{ 
 		
 		double acc_phi = last_best_mean * acc_fac;
@@ -2271,6 +2582,9 @@ bool IterEnsembleSmoother::solve()
 	best_std = ph.get_std(PhiHandler::phiType::COMPOSITE);
 	message(1, "last best mean phi * acceptable phi factor: ", last_best_mean * acc_fac);
 	message(1, "current best mean phi: ", best_mean);
+
+	//track this here for phi-based termination check
+	best_mean_phis.push_back(best_mean);
 
 	if (best_mean < last_best_mean * acc_fac)
 	{
@@ -2435,7 +2749,7 @@ vector<ObservationEnsemble> IterEnsembleSmoother::run_lambda_ensembles(vector<Pa
 		catch (const exception &e)
 		{
 			stringstream ss;
-			ss << "error processing runs for lambda,scale: " << lam_vals[i] << ',' << scale_vals[i] << ': ' << e.what();
+			ss << "error processing runs for lambda,scale: " << lam_vals[i] << ',' << scale_vals[i] << ':' << e.what();
 			throw_ies_error(ss.str());
 		}
 		catch (...)
