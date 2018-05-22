@@ -385,9 +385,11 @@ void PestppOptions::parce_line(const string &line)
 		string org_value = (*i)[2];
 		upper_ip(key);
 		string value = upper_cp(org_value);
+		passed_args.insert(key);
 
 		if (key=="MAX_N_SUPER"){
 			convert_ip(value, max_n_super); 
+		
 		}
 		else if (key=="SUPER_EIGTHRES"){
 			convert_ip(value, super_eigthres); 
@@ -484,6 +486,13 @@ void PestppOptions::parce_line(const string &line)
 			parcov_filename = org_value;
 		}
 
+		else if ((key == "OBSCOV") || (key == "OBSERVATION_COVARIANCE")
+			|| (key == "OBSCOV_FILENAME"))
+		{
+			//convert_ip(org_value, parcov_filename);
+			obscov_filename = org_value;
+		}
+
 		else if ((key == "BASE_JACOBIAN") || (key == "BASE_JACOBIAN_FILENAME"))
 		{
 			//convert_ip(org_value, basejac_filename);
@@ -533,7 +542,8 @@ void PestppOptions::parce_line(const string &line)
 		}
 		else if (key == "REG_FRAC")
 		{
-			convert_ip(value, reg_frac);
+			//convert_ip(value, reg_frac);
+			throw runtime_error("'++reg_frac' has been deprecated - please use * regularization and PHIMLIM");
 		}
 		/*else if (key == "USE_PARCOV_SCALING")
 		{
@@ -745,13 +755,13 @@ void PestppOptions::parce_line(const string &line)
 		else if (key == "IES_NUM_REALS")
 		{
 			convert_ip(value, ies_num_reals);
-			ies_num_reals_passed = true;
+			//ies_num_reals_passed = true;
 		}
 		else if (key == "IES_BAD_PHI")
 		{
 			convert_ip(value, ies_bad_phi);
 		}
-		else if (key == "IES_INCLUDE_BASE")
+		else if ((key == "IES_INCLUDE_BASE") || (key == "IES_ADD_BASE"))
 		{
 			transform(value.begin(), value.end(), value.begin(), ::tolower);
 			istringstream is(value);
@@ -810,6 +820,10 @@ void PestppOptions::parce_line(const string &line)
 			transform(value.begin(), value.end(), value.begin(), ::tolower);
 			istringstream is(value);
 			is >> boolalpha >> ies_save_lambda_en;
+		}
+		else if ((key == "IES_WEIGHST_EN") || (key == "IES_WEIGHTS_ENSEMBLE"))
+		{
+			ies_weight_csv = org_value;
 		}
 		else {
 

@@ -100,7 +100,7 @@ def setup_suite_dir(model_d):
     # run sweep
     if os.path.exists("master_sweep"):
         shutil.rmtree("master_sweep")
-    pyemu.helpers.start_slaves(new_d, "sweep", "pest.pst", 10, master_dir="master_sweep")
+    pyemu.helpers.start_slaves(new_d, "pestpp-swp", "pest.pst", 10, master_dir="master_sweep")
 
     # process sweep output as restart csv and jcb
     df = pd.read_csv(os.path.join("master_sweep", "sweep_out.csv"))
@@ -276,6 +276,75 @@ def rebase(model_d):
                              os.path.join(base_d, "{0}__{1}".
                                           format(os.path.split(test_d)[-1], compare_file)))
 
+
+def tenpar_narrow_range_test():
+    model_d = "ies_10par_xsec"
+    test_d = os.path.join(model_d, "master_narrow_test")
+    template_d = os.path.join(model_d, "test_template")
+    if not os.path.exists(template_d):
+        raise Exception("template_d {0} not found".format(template_d))
+    if os.path.exists(test_d):
+        shutil.rmtree(test_d)
+    shutil.copytree(template_d, test_d)
+    pst_name = os.path.join(test_d, "pest.pst")
+    pst = pyemu.Pst(pst_name)
+    par = pst.parameter_data
+    #par.loc[:, "partrans"] = "fixed"
+    par.loc[:, "parubnd"] = 1.0e+10 #par.parval1 * 1.0001
+    par.loc[:, "parlbnd"] = 1.0e-10 #par.parval1 * 0.9999
+    #par.loc[pst.par_names[:2], "partrans"] = "none"
+    #par.loc[pst.par_names[0],"pargp"] = "stage"
+
+    x = np.zeros((pst.npar_adj, pst.npar_adj)) + 1.0e-11
+    for i in range(pst.npar_adj):
+        x[i, i] = 5.0e-10
+    cov = pyemu.Cov(x, names=pst.adj_par_names)
+    cov.to_ascii(os.path.join(test_d, "prior.cov"))
+    num_reals = 5000
+    pe = pyemu.ParameterEnsemble.from_gaussian_draw(pst, cov, num_reals=num_reals, use_homegrown=True)
+    #pe.enforce()
+    #pe.to_csv(os.path.join(test_d,"pyemu_draws.csv"))
+
+    pst.control_data.noptmax = 0
+
+    pst.observation_data.loc[pst.nnz_obs_names,"weight"] *= 1.5
+
+    pst.pestpp_options = {}
+    pst.pestpp_options["ies_num_reals"] = num_reals
+    pst.pestpp_options["parcov_filename"] = "prior.cov"
+    pst.pestpp_options["ies_enforce_bounds"] = False
+    pst.pestpp_options["ies_include_base"] = False
+    pst.pestpp_options["ies_group_draws"] = False
+    pst.pestpp_options["ies_verbose_level"] = 3
+    pst.write(pst_name)
+    pyemu.helpers.run(exe_path + " pest.pst", cwd=test_d)
+
+    df = pd.read_csv(os.path.join(test_d, "pest.0.par.csv"), index_col=0)
+    df.columns = [c.lower() for c in df.columns]
+    p1, p2 = pst.adj_par_names[:2]
+    v1,v2 = pe.loc[:,p1].var(),df.loc[:,p1].var()
+    diff = np.abs(100 * ((v1 - v2) / v1))
+    print(v1,v2,diff)
+    assert diff < 1.0
+
+    pst.pestpp_options = {}
+    pst.pestpp_options["ies_num_reals"] = num_reals
+    pst.pestpp_options["parcov_filename"] = "prior.cov"
+    pst.pestpp_options["ies_enforce_bounds"] = False
+    pst.pestpp_options["ies_include_base"] = False
+    pst.pestpp_options["ies_group_draws"] = True
+    pst.pestpp_options["ies_verbose_level"] = 3
+    pst.write(pst_name)
+    pyemu.helpers.run(exe_path + " pest.pst", cwd=test_d)
+
+    df = pd.read_csv(os.path.join(test_d, "pest.0.par.csv"), index_col=0)
+    df.columns = [c.lower() for c in df.columns]
+    p1, p2 = pst.adj_par_names[:2]
+    v1, v2 = pe.loc[:, p1].var(), df.loc[:, p1].var()
+    diff = np.abs(100 * ((v1 - v2) / v1))
+    print(v1, v2, diff)
+    assert diff < 1.0
+
 def tenpar_full_cov_test():
     model_d = "ies_10par_xsec"
     test_d = os.path.join(model_d, "master_full_cov_test")
@@ -349,18 +418,19 @@ def tenpar_subset_test():
 
     # first without subset
     pst.pestpp_options = {}
-    pst.pestpp_options["ies_num_reals"] = 50
+    pst.pestpp_options["ies_num_reals"] = 20
     pst.pestpp_options["ies_lambda_mults"] = "1.0"
     pst.pestpp_options["ies_accept_phi_fac"] = 100.0
+    pst.pestpp_options["ies_subset_size"] = 21
     pst.write(os.path.join(template_d, "pest.pst"))
     pyemu.helpers.start_slaves(template_d, exe_path, "pest.pst", num_slaves=10,
                                slave_root=model_d, master_dir=test_d)
     df_base = pd.read_csv(os.path.join(test_d, "pest.phi.meas.csv"),index_col=0)
 
     pst.pestpp_options = {}
-    pst.pestpp_options["ies_num_reals"] = 50
+    pst.pestpp_options["ies_num_reals"] = 20
     pst.pestpp_options["ies_lambda_mults"] = "1.0"
-    pst.pestpp_options["ies_subset_size"] = 15
+    pst.pestpp_options["ies_subset_size"] = 5
     pst.pestpp_options["ies_accept_phi_fac"] = 100.0
 
     pst.write(os.path.join(template_d, "pest.pst"))
@@ -368,6 +438,7 @@ def tenpar_subset_test():
                                slave_root=model_d, master_dir=test_d)
     df_sub = pd.read_csv(os.path.join(test_d, "pest.phi.meas.csv"),index_col=0)
     diff = (df_sub - df_base).apply(np.abs)
+    diff = diff.iloc[:,6:]
     print(diff.max())
     print(df_sub.iloc[-1,:])
     print(df_base.iloc[-1,:])
@@ -653,14 +724,17 @@ def test_synth():
     print("loading pst")
     pst = pyemu.Pst(os.path.join(template_d,"pest.pst"))
     pst.pestpp_options = {}
-    pst.pestpp_options["ies_num_reals"] = num_reals
     pst.pestpp_options["ies_use_approx"] = "false"
     pst.pestpp_options["ies_use_prior_scaling"] = "true"
-    pst.control_data.noptmax = 1
+    pst.pestpp_options["ies_lambda_mults"] = [0.1,1.0]
+    pst.pestpp_options["lambda_scale_fac"] = [0.9,1.1]
+    pst.pestpp_options["ies_num_reals"] = 30
+    pst.pestpp_options["ies_save_binary"] = True
+    pst.control_data.noptmax = 2
     print("writing pst")
     pst.write(os.path.join(template_d,"pest.pst"))
     print("starting slaves")
-    pyemu.helpers.start_slaves(template_d,exe_path,"pest.pst",num_slaves=10,master_dir=test_d,slave_root=model_d)
+    pyemu.helpers.start_slaves(template_d,exe_path,"pest.pst",num_slaves=15,master_dir=test_d,slave_root=model_d)
 
 def test_chenoliver():
     model_d = "ies_chenoliver"
@@ -685,8 +759,8 @@ def test_chenoliver():
     pst.write(os.path.join(test_d,"pest.pst"))
     pyemu.helpers.run(exe_path+" pest.pst",cwd=test_d)
     
-    num_reals = 1000
-    noptmax = 10
+    num_reals = 500
+    noptmax = 4
     
 
     shutil.rmtree(test_d)
@@ -799,6 +873,11 @@ def test_chenoliver():
     # d = np.abs(df_full_par.PAR.mean() - 6.0)
     # assert d < 0.05,d
 
+
+
+
+
+
 def test_kirishima():
 
     model_d = "ies_kirishima"
@@ -872,12 +951,12 @@ def tenpar_fixed_test():
         shutil.rmtree(test_d)
     shutil.copytree(template_d,test_d)
     cov = pyemu.Cov.from_parameter_data(pst)
-    pe = pyemu.ParameterEnsemble.from_gaussian_draw(pst=pst,cov=cov,num_reals=10)
+    pe = pyemu.ParameterEnsemble.from_gaussian_draw(pst=pst,cov=cov,num_reals=50)
 
     pe.loc[:,"stage"] = np.linspace(0.0,1.0,pe.shape[0])
     pe.loc[:,"k_01"] = 5.0
-    pe.to_csv(os.path.join(test_d,"par.csv"))
-    pe.to_binary(os.path.join(test_d, "par.jcb"))
+    pe.to_csv(os.path.join(template_d,"par.csv"))
+    pe.to_binary(os.path.join(template_d, "par.jcb"))
     fixed_pars = ["stage","k_01"]
     pst.parameter_data.loc[fixed_pars,"partrans"] = "fixed"
 
@@ -890,38 +969,217 @@ def tenpar_fixed_test():
             df = df.iloc[:-1,:]
             df.index = pe.index
             diff = pe.loc[df.index,fixed_pars] - df
-            assert diff.apply(np.abs).sum().sum() < 0.01
+            assert diff.apply(np.abs).sum().sum() < 0.01, diff
 
     pst.pestpp_options["ies_par_en"] = "par.csv"
-    pst.write(os.path.join(test_d, "pest.pst"))
-    pyemu.helpers.run("{0} pest.pst".format(exe_path), cwd=test_d)
+    pst.write(os.path.join(template_d, "pest.pst"))
+    #pyemu.helpers.run("{0} pest.pst".format(exe_path), cwd=test_d)
+    pyemu.helpers.start_slaves(template_d, exe_path, "pest.pst", num_slaves=20, master_dir=test_d,
+                               slave_root=model_d)
     compare()
-    pe.to_binary(os.path.join(test_d,"par.jcb"))
+    pe.to_binary(os.path.join(template_d,"par.jcb"))
     pst.pestpp_options["ies_par_en"] = "par.jcb"
-    pst.write(os.path.join(test_d, "pest.pst"))
-    pyemu.helpers.run("{0} pest.pst".format(exe_path), cwd=test_d)
+    pst.write(os.path.join(template_d, "pest.pst"))
+    #pyemu.helpers.run("{0} pest.pst".format(exe_path), cwd=test_d)
+    pyemu.helpers.start_slaves(template_d, exe_path, "pest.pst", num_slaves=20, master_dir=test_d,
+                               slave_root=model_d)
     compare()
 
     pst.pestpp_options["ies_par_en"] = "par.jcb"
     pst.pestpp_options["ies_save_binary"] = 'true'
-    pst.write(os.path.join(test_d, "pest.pst"))
-    pyemu.helpers.run("{0} pest.pst".format(exe_path), cwd=test_d)
+    pst.write(os.path.join(template_d, "pest.pst"))
+    #pyemu.helpers.run("{0} pest.pst".format(exe_path), cwd=test_d)
+    pyemu.helpers.start_slaves(template_d, exe_path, "pest.pst", num_slaves=20, master_dir=test_d,
+                               slave_root=model_d)
     pe1 = pyemu.ParameterEnsemble.from_binary(pst=pst,filename=os.path.join(test_d,"pest.0.par.jcb")).iloc[:-1,:]
     pe1.index = pe.index
     diff = pe - pe1
     assert diff.apply(np.abs).sum().sum() == 0.0
 
 
+def tenpar_weights_test():
+    model_d = "ies_10par_xsec"
+    test_d = os.path.join(model_d, "test_weights")
+    template_d = os.path.join(model_d, "template")
+    pst = pyemu.Pst(os.path.join(template_d,"pest.pst"))
+    
+    if os.path.exists(test_d):
+        shutil.rmtree(test_d)
+    shutil.copytree(template_d,test_d)
+
+    dfs = []
+    
+
+    for i in range(3):
+        obs = pst.observation_data.weight.copy()    
+        dfs.append(obs)
+
+    df = pd.concat(dfs,axis=1).T
+    df.index = np.arange(df.shape[0])
+    df.to_csv(os.path.join(test_d,"weights.csv"))
+    oe = pyemu.ObservationEnsemble.from_id_gaussian_draw(pst=pst,num_reals=df.shape[0])
+    oe.to_csv(os.path.join(test_d,"obs.csv"))
+    pst.control_data.noptmax = -1
+    #pst.pestpp_options["ies_weights_ensemble"] = "weights.csv"
+    pst.pestpp_options["ies_num_reals"] = df.shape[0]
+    pst.pestpp_options["ies_lambda_mults"] = 1.0
+    pst.pestpp_options["lambda_scale_fac"] = 1.0
+    pst.pestpp_options["ies_obs_en"] = "obs.csv"
+
+    pst.write(os.path.join(test_d,"pest.pst"))
+    pyemu.helpers.run("{0} pest.pst".format(exe_path), cwd=test_d)
+    df_act = pd.read_csv(os.path.join(test_d,"pest.phi.actual.csv"))
+    df_meas = pd.read_csv(os.path.join(test_d,"pest.phi.meas.csv"))
+
+    pst.pestpp_options["ies_weights_ensemble"] = "weights.csv"
+    pst.write(os.path.join(test_d,"pest.pst"))
+    pyemu.helpers.run("{0} pest.pst".format(exe_path), cwd=test_d)
+    df_act1 = pd.read_csv(os.path.join(test_d,"pest.phi.actual.csv"))
+    df_meas1 = pd.read_csv(os.path.join(test_d,"pest.phi.meas.csv"))
+    print(df_act.loc[0,"mean"],df_act1.loc[0,"mean"])
+    assert df_act.loc[0,"mean"] == df_act1.loc[0,"mean"]
+
+    print(df_meas.loc[0,"mean"],df_meas1.loc[0,"mean"])
+    assert df_meas.loc[0,"mean"] == df_meas1.loc[0,"mean"]
+
+
+
+def tenpar_weight_pareto_test():
+
+    model_d = "ies_10par_xsec"
+    test_d = os.path.join(model_d, "test_weight_pareto")
+    template_d = os.path.join(model_d, "template")
+    pst = pyemu.Pst(os.path.join(template_d,"pest.pst"))
+    
+    #if os.path.exists(test_d):
+    #   shutil.rmtree(test_d)
+    #shutil.copytree(template_d,test_d)
+
+    dfs = []
+    obs = pst.observation_data
+    obs.loc["h02_08", "obsval"] = 0
+    obs.loc["h02_08", "weight"] = 1.0
+    dfs = []
+    weights = np.linspace(0.0,10.0,50)
+    for weight in weights:
+        obs = pst.observation_data.weight.copy()
+        obs.loc["h02_08"] = weight
+        dfs.append(obs)
+        # for i in range(nreal_per):
+        #     dfs.append(obs)
+        #for weight2 in weights:
+        #    obs1 = obs.copy()
+        #    obs1.loc["h02_08"] = weight2
+        #    #print(obs1)
+        #    dfs.append(obs1)
+
+    df = pd.concat(dfs,axis=1).T
+    df.index = np.arange(df.shape[0])
+    df.to_csv(os.path.join(template_d,"weights.csv"))
+
+    obs = pst.observation_data.obsval
+    df = pd.concat([obs.copy() for i in range(df.shape[0])],axis=1).T
+    df.index = np.arange(df.shape[0])
+    df.to_csv(os.path.join(template_d, "obs.csv"))
+
+
+    pst.control_data.noptmax = 3
+    pst.pestpp_options["ies_weights_ensemble"] = "weights.csv"
+    pst.pestpp_options["ies_obs_en"] = "obs.csv"
+    pst.pestpp_options["ies_num_reals"] = df.shape[0]
+    pst.pestpp_options["ies_subset_size"] = df.shape[0]
+    #pst.pestpp_options["ies_lambda_mults"] = 1.0
+    #pst.pestpp_options["lambda_scale_fac"] = 1.0
+    obs = pst.observation_data
+    #obs.loc[pst.nnz_obs_names,"obsval"] = obs.loc[pst.nnz_obs_names,"obsval"].mean()
+    #obs.loc["h01_04","obsval"] = 0.0
+    #obs.loc["h01_06","obsval"] = 6.0
+
+    pst.write(os.path.join(template_d,"pest_pareto.pst"))
+    pyemu.os_utils.start_slaves(template_d,exe_path,"pest_pareto.pst",num_slaves=40,
+                                slave_root=model_d,master_dir=test_d)
+    obs = pst.observation_data
+    df_init = pd.read_csv(os.path.join(test_d,"pest_pareto.0.obs.csv".format(pst.control_data.noptmax)))
+    df = pd.read_csv(os.path.join(test_d,"pest_pareto.{0}.obs.csv".format(pst.control_data.noptmax)))
+    df_phi = pd.read_csv(os.path.join(test_d,"pest_pareto.phi.meas.csv"))
+    df_phi = df_phi.loc[:,[str(v) for v in df_init.index.values]]
+    # fig = plt.figure(figsize=(10,10))
+    # ax = plt.subplot(221)
+    # ax2 = plt.subplot(223)
+    # ax3 = plt.subplot(224)
+    # ax2.scatter(((df_init.H01_04-obs.loc["h01_04","obsval"])**2),
+    #     ((df_init.H01_06-obs.loc["h01_06","obsval"])**2),s=4, color='0.5')
+    # ax2.scatter(((df.H01_04-obs.loc["h01_04","obsval"])**2),
+    #     ((df.H01_06-obs.loc["h01_06","obsval"])**2),s=4, color='b')
+    # ax.scatter(df_phi.iloc[0,:],((df_init.H01_06-obs.loc["h01_06","obsval"])**2),s=4, color='0.5')
+    # ax.scatter(df_phi.iloc[-1,:],((df.H01_06-obs.loc["h01_06","obsval"])**2),s=4, color='b')
+    # ax3.scatter(df_phi.iloc[0,:],((df_init.H01_04-obs.loc["h01_04","obsval"])**2),s=4, color='0.5')
+    # ax3.scatter(df_phi.iloc[-1,:],((df.H01_04-obs.loc["h01_04","obsval"])**2),s=4, color='b')
+
+    # ax2.scatter(df_init.H01_04,df_init.H01_06, s=4, color='0.5')
+    # ax2.scatter(df.H01_04,df.H01_06, s=4, color='b')
+    # ax.scatter(df_phi.iloc[0, :], df_init.H01_06, s=4, color='0.5')
+    # ax.scatter(df_phi.iloc[-1, :], df.H01_06, s=4, color='b')
+    # ax3.scatter(df_phi.iloc[0, :], df_init.H01_04, s=4, color='0.5')
+    # ax3.scatter(df_phi.iloc[-1, :], df.H01_04, s=4, color='b')
+
+    fig = plt.figure(figsize=(10, 10))
+    ax = plt.subplot(221)
+    ax.scatter(df_phi.iloc[0, :], df_init.H02_08, s=4, color='0.5')
+    ax.scatter(df_phi.iloc[-1, :], df.H02_08, s=4, color='b')
+    # ax.scatter(df_phi.iloc[0, :], (df_init.H02_08-obs.obsval["h02_08"])**2, s=4, color='0.5')
+    # ax.scatter(df_phi.iloc[-1, :], (df.H02_08-obs.obsval["h02_08"])**2, s=4, color='b')
+
+    plt.show()
+
+
+def rosenbrock_function():
+    par_df = pd.read_csv("par.dat",delim_whitespace=True,index_col=0)
+    tot = 0.0
+    for i in range(par_df.shape[0]-1):
+        tot += 100.0*(par_df.iloc[i+1] - par_df.iloc[i]**2)**2 + (1 - par_df.iloc[i])**2
+    with open("obs.dat",'w') as f:
+        f.write("obs {0:20.8E}".format(tot))
+
+def setup_rosenbrock():
+
+    npar = 2
+    test_d = "ies_rosenbrock"
+    if not os.path.exists(test_d):
+        os.mkdir(test_d)
+
+    template_d = os.path.join(test_d,"template")
+    if os.path.exists(template_d):
+        shutil.rmtree(template_d)
+    os.mkdir(template_d)
+
+    with open(os.path.join(template_d,"par.dat.tpl"),'w') as f:
+        f.write("ptf ~\n")
+        for i in range(npar):
+            f.write("par{0:04d}  ~   par{0:04d}   ~\n")
+    with open(os.path.join(template_d,"obs.dat.ins"),'w') as f:
+        f.write("pif ~\n")
+        f.write("l1 w !obs1!\n")
+
+    bd = os.getcwd()
+
+
+
+
+
+
 
 
 if __name__ == "__main__":
     # write_empty_test_matrix()
-    #setup_suite_dir("ies_freyberg")
-    #setup_suite_dir("ies_10par_xsec")
-    #run_suite("ies_freyberg")
-    #run_suite("ies_10par_xsec")
-    #rebase("ies_freyberg")
-    #rebase("ies_10par_xsec")
+    # setup_suite_dir("ies_freyberg")
+    # setup_suite_dir("ies_10par_xsec")
+    # run_suite("ies_freyberg")
+    # run_suite("ies_10par_xsec")
+    # rebase("ies_freyberg")
+    # rebase("ies_10par_xsec")
+    # compare_suite("ies_10par_xsec")
+    # compare_suite("ies_freyberg")
 
     #tenpar_subset_test()
     #tenpar_full_cov_test()
@@ -929,13 +1187,13 @@ if __name__ == "__main__":
     #test_freyberg_full_cov_reorder_run()
     #test_freyberg_full_cov()
     
-    #test_synth()
+    test_synth()
     #test_10par_xsec()
     #test_freyberg()
-    test_chenoliver()
+    #test_chenoliver()
+    #tenpar_weight_pareto_test()
     #compare_pyemu()
-    #tenpar_subset_test()
-    #tenpar_full_cov_test()
+    # tenpar_narrow_range_test()
     #test_freyberg_ineq()
     
     # # invest()
@@ -945,3 +1203,5 @@ if __name__ == "__main__":
     #test_kirishima()
 
     #tenpar_fixed_test()
+
+    #setup_rosenbrock()

@@ -20,6 +20,32 @@ Ensemble::Ensemble(Pest *_pest_scenario_ptr): pest_scenario_ptr(_pest_scenario_p
 	rand_engine.seed(1123433458);
 }
 
+void Ensemble::check_for_dups()
+{
+	vector<string> dups;
+	set<string> names;
+	for (auto &n : var_names)
+	{
+		if (names.find(n) != names.end())
+			dups.push_back(n);
+		names.insert(n);
+	}
+
+	names.clear();
+	for (auto &n : real_names)
+	{
+		if (names.find(n) != names.end())
+			dups.push_back(n);
+		names.insert(n);
+	}
+	 
+	if (dups.size() > 0)
+	{
+		throw_ensemble_error("duplicate var/real names in ensemble: ", dups);
+	}
+
+}
+
 void Ensemble::reserve(vector<string> _real_names, vector<string> _var_names)
 {
 	reals.resize(_real_names.size(), _var_names.size());
@@ -121,6 +147,7 @@ void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const ve
 			Covariance gcov;
 			stringstream ss;
 			RedSVD::RedSymEigen<Eigen::SparseMatrix<double>> eig;
+			
 			Eigen::MatrixXd proj;
 			map<string, int> idx_map;
 			vector<int> idx;
@@ -149,6 +176,7 @@ void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const ve
 				{
 					gcov.to_ascii(gi.first + "_cov.dat");
 				}
+				
 				idx.clear();
 				for (auto n : gi.second)
 					idx.push_back(idx_map[n]);
@@ -158,19 +186,33 @@ void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const ve
 				//cout << var_names[idx[0]] << "," << var_names[idx.size() - idx[0]] << endl;
 				//cout << idx[0] << ',' << idx[idx.size()-1] << ',' <<  idx.size() << " , " << idx[idx.size()-1] - idx[0] <<  endl;
 				
-				Eigen::MatrixXd block = draws.block(0, idx[0], num_reals - 1, idx.size());
+				double fac = gcov.e_ptr()->diagonal().minCoeff();
+				ss.str("");
+				ss << "min variance for group " << gi.first << ": " << fac;
+				plog->log_event(ss.str());
+				Eigen::MatrixXd block = draws.block(0, idx[0], num_reals, idx.size());
 				ss.str("");
 				ss << "Randomized Eigen decomposition of full cov for " << gi.second.size() << " element matrix" << endl;
 				plog->log_event(ss.str());
-				eig.compute(*gcov.e_ptr(), gi.second.size());
-				proj = (eig.eigenvectors() * eig.eigenvalues().cwiseSqrt().asDiagonal());
+				eig.compute(*gcov.e_ptr() * (1.0/fac), gi.second.size());
+				//RedSVD::RedSVD<Eigen::SparseMatrix<double>> svd;
+				//svd.compute(*gcov.e_ptr(),gcov.get_col_names().size());// , gi.second.size());
+				//cout << svd.singularValues() << endl;
+				//Eigen::JacobiSVD<Eigen::MatrixXd> svd(gcov.e_ptr()->toDense(), Eigen::ComputeFullU);
+				//svd.computeU();
+				
+				proj = (eig.eigenvectors() * (fac *eig.eigenvalues()).cwiseSqrt().asDiagonal());
+				//proj = (svd.matrixU() * svd.singularValues().asDiagonal());
+				
 				if (level > 2)
 				{
 					ofstream f(gi.first + "_evec.dat");
 					f << eig.eigenvectors() << endl;
+					//f << svd.matrixU() << endl;
 					f.close();
 					ofstream ff(gi.first + "_sqrt_evals.dat");
-					ff << eig.eigenvalues().cwiseSqrt() << endl;
+					ff << (fac * eig.eigenvalues()).cwiseSqrt() << endl;
+					//ff << svd.singularValues() << endl;
 					ff.close();
 					ofstream fff(gi.first+"_proj.dat");
 					fff << proj << endl;
@@ -179,7 +221,7 @@ void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const ve
 				//cout << "block " << block.rows() << " , " << block.cols() << endl;
 				//cout << " proj " << proj.rows() << " , " << proj.cols() << endl;
 				plog->log_event("projecting group block");
-				draws.block(0, idx[0], num_reals - 1, idx.size()) = (proj * block.transpose()).transpose();
+				draws.block(0, idx[0], num_reals, idx.size()) = (proj * block.transpose()).transpose();
 				
 			}
 		}
@@ -189,16 +231,19 @@ void Ensemble::draw(int num_reals, Covariance cov, Transformable &tran, const ve
 			stringstream ss;
 			ss << "Randomized Eigen decomposition of full cov using " << ncomps << " components";
 			plog->log_event(ss.str());
-			RedSVD::RedSymEigen<Eigen::SparseMatrix<double>> eig(*cov.e_ptr(), ncomps);
-			Eigen::MatrixXd proj = (eig.eigenvectors() * eig.eigenvalues().cwiseSqrt().asDiagonal());
+			double fac = cov.e_ptr()->diagonal().minCoeff();
+			ss.str("");
+			ss << "min variance: " << fac;
+			RedSVD::RedSymEigen<Eigen::SparseMatrix<double>> eig(*cov.e_ptr() * (1.0/fac), ncomps);
+			Eigen::MatrixXd proj = (eig.eigenvectors() * (fac * eig.eigenvalues()).cwiseSqrt().asDiagonal());
 
 			if (level > 2)
 			{
 				ofstream f("cov_eigenvectors.dat");
 				f << eig.eigenvectors() << endl;
 				f.close();
-				f.open("cov_eigenvalues.dat");
-				f << eig.eigenvalues() << endl;
+				f.open("cov_sqrt_evals.dat");
+				f << (fac * eig.eigenvalues()).cwiseSqrt() << endl;
 				f.close();
 				f.open("cov_projection_matrix.dat");
 				f << proj << endl;
@@ -731,17 +776,22 @@ void Ensemble::append_other_rows(Ensemble &other)
 	if (other.shape().second != shape().second)
 		throw_ensemble_error("append_other_rows(): different number of var_names in other");
 	vector<string> probs;
-	vector<string>::iterator start = var_names.begin(), end = var_names.end();
+	set<string> vnames(var_names.begin(), var_names.end());
+	//vector<string>::iterator start = var_names.begin(), end = var_names.end();
+	set<string>::iterator end = vnames.end();
 	for (auto &vname : other.get_var_names())
-		if (find(start, end, vname) == end)
+		//if (find(start, end, vname) == end)
+		if (vnames.find(vname) == end)
 			probs.push_back(vname);
 	if (probs.size() > 0)
 		throw_ensemble_error("append_other_rows(): the following other::var_names not in this::var_names: ", probs);
-	start = real_names.begin();
-	end = real_names.end();
+	//start = real_names.begin();
+	//end = real_names.end();
+	set<string> rnames(real_names.begin(), real_names.end());
+	end = rnames.end();
 	for (auto &rname : other.get_real_names())
-
-		if (find(start, end, rname) != end)
+		//if (find(start, end, rname) != end)
+		if (rnames.find(rname) == end)
 			probs.push_back(rname);
 	if (probs.size() > 0)
 		throw_ensemble_error("append_other_rows(): the following other::real_names are also in this::real_names: ", probs);
