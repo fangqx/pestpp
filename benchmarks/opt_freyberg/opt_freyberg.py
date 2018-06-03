@@ -2,6 +2,7 @@ import os
 import shutil
 import numpy as np
 import pandas as pd
+import matplotlib.ticker as ticker
 import matplotlib.pyplot as plt
 import flopy
 import pyemu
@@ -14,6 +15,8 @@ mt_exe = "mt3dusgs"
 new_model_ws = "template"
 
 derinc = 1.0
+
+phi_factor = 365. * 40.
 
 
 def setup_models(m=None):
@@ -130,6 +133,7 @@ def setup_pest():
     os.chdir("..")
 
     ph.write_forward_run()
+    ph.pst.pestpp_options["parcov"] = "freyberg.truth.pst.prior.cov"
     ph.pst.control_data.noptmax = 0
     ph.pst.rectify_pgroups()
 
@@ -171,33 +175,34 @@ def setup_pest():
     # obs.loc["gw_cohe1c_003650.0", "weight"] = 1.0
     # obs.loc["gw_cohe1c_003650.0", "obsval"] *= 1.2 #% increase
 
+    # pestpp-opt does this internally now...
     # fix all non dec vars so we can set upper and lower bound constraints
-    par = ph.pst.parameter_data
-    par.loc[par.pargp!="kg","partrans"] = "fixed"
+    # par = ph.pst.parameter_data
+    # par.loc[par.pargp!="kg","partrans"] = "fixed"
 
-    # add some pi constraints to make sure all dec vars have at
-    # least one element in the response matrix
-    # set lower bounds
-    parval1 = par.parval1.copy()
-    par.loc[par.pargp == "kg", "parval1"] = par.loc[par.pargp == "kg", "parlbnd"]
-    pyemu.helpers.zero_order_tikhonov(pst=ph.pst)
+    # # add some pi constraints to make sure all dec vars have at
+    # # least one element in the response matrix
+    # # set lower bounds
+    # parval1 = par.parval1.copy()
+    # par.loc[par.pargp == "kg", "parval1"] = par.loc[par.pargp == "kg", "parlbnd"]
+    # pyemu.helpers.zero_order_tikhonov(pst=ph.pst)
 
-    ph.pst.prior_information.loc[:,"pilbl"] += "_l"
-    l_const = ph.pst.prior_information.pilbl.copy()
-    #ph.pst.prior_information.loc[:,"obgnme"] = "greater_bnd"
+    # ph.pst.prior_information.loc[:,"pilbl"] += "_l"
+    # l_const = ph.pst.prior_information.pilbl.copy()
+    # #ph.pst.prior_information.loc[:,"obgnme"] = "greater_bnd"
 
-    # set upper bounds
-    par.loc[par.pargp=="kg","parval1"] = par.loc[par.pargp=="kg","parubnd"]
-    pyemu.helpers.zero_order_tikhonov(ph.pst,reset=False)
-    ph.pst.prior_information.loc[:, "obgnme"] = "less_bnd"
-    ph.pst.prior_information.loc[l_const,"obgnme"] = "greater_bnd"
+    # # set upper bounds
+    # par.loc[par.pargp=="kg","parval1"] = par.loc[par.pargp=="kg","parubnd"]
+    # pyemu.helpers.zero_order_tikhonov(ph.pst,reset=False)
+    # ph.pst.prior_information.loc[:, "obgnme"] = "less_bnd"
+    # ph.pst.prior_information.loc[l_const,"obgnme"] = "greater_bnd"
 
 
     #set dec vars to background value (derinc)
-    par.loc[par.pargp == "kg", "parval1"] = parval1
+    #par.loc[par.pargp == "kg", "parval1"] = parval1
 
     #unfix pars
-    par.loc[par.pargp != "kg", "partrans"] = "log"
+    #par.loc[par.pargp != "kg", "partrans"] = "log"
 
     ph.pst.pestpp_options = {}
     ph.pst.pestpp_options["opt_dec_var_groups"] = "kg"
@@ -244,7 +249,7 @@ def write_ssm_tpl():
     df.index = df.parnme
     df.loc[:,"pargp"] = "kg"
     df.loc[:,"parval1"] = parval1
-    df.loc[:,"parubnd"] = 10.0
+    df.loc[:,"parubnd"] = 100.0
     #df.loc[:,"parubnd"] = df.parval1 * 10000000.0
     df.loc[:,"partrans"] = "none"
     #df.loc[:,'parlbnd'] = df.parval1 * 0.9
@@ -253,6 +258,35 @@ def write_ssm_tpl():
     #df.loc[:,"j"] = df.parnme.apply(lambda x: int(x.split('_')[2]))
 
     return df
+
+def plot_risk_sweep_pargp():
+    r_d = "results_pargp1"
+    files = os.listdir(r_d)
+    fig = plt.figure(figsize=(6,6))
+    ax = plt.subplot(111)
+    colors=['g','m','c','b','r','y',"maroon","indigo","brown",'darkred',"olivedrab","coral"]
+    for i,f in enumerate(files):
+        if "base" in f:
+            c = 'k'
+            lw = 3
+            ls = '--'
+        else:
+            c = colors[i]
+            lw = 1.0
+            ls = '-'
+        df = pd.read_csv(os.path.join(r_d,f),index_col=0)
+        df.loc[df.infeas==True,"phi"] = np.NaN
+        df.loc[:,"phi"] *= phi_factor
+        ax.plot(df.risk,df.phi.values,color=c,lw=lw,ls=ls,alpha=0.5,label=f.split('.')[0])
+    ax.legend()
+    ax.grid()
+    ax.set_ylabel("$\\phi (\\$)$")
+    ax.set_xlabel("risk")
+    ax.yaxis.set_major_formatter(ticker.FormatStrFormatter('%1.1e'))
+    plt.savefig("risk_pargp.pdf")
+    plt.show()
+
+
 
 
 def run_jco():
@@ -273,7 +307,7 @@ def run_pestpp_opt():
     pst = pyemu.Pst(pst_file)
     pst.control_data.noptmax = 1
     pst.write(pst_file)
-    pyemu.helpers.start_slaves(new_model_ws,"pestpp-opt","freyberg.pst",num_slaves=15,master_dir="master_opt",
+    pyemu.helpers.start_slaves(new_model_ws,"pestpp-opt","freyberg.pst",num_slaves=15,master_dir="master",
                                slave_root='.',port=4005)
 
 def spike_test():
@@ -324,28 +358,41 @@ def spike_test():
 
 
 def jco_invest():
-    pst_file = os.path.join("master_opt","freyberg.pst")
+    pst_file = os.path.join("_restart_files","restart.pst")
     pst = pyemu.Pst(pst_file)
     par = pst.parameter_data
     fosm_pars = par.loc[par.pargp!="kg","parnme"]
-    jco = pyemu.Jco.from_binary(pst_file.replace(".pst",".1.jcb")).to_dataframe()
+    jco = pyemu.Jco.from_binary(pst_file.replace(".pst",".jcb")).to_dataframe()
+    rc_pars = par.loc[par.pargp.apply(lambda x: "rc1" in x),"parnme"]
+    print(rc_pars)
+    print(jco.loc[:,rc_pars])
     #print(jco.columns)
     #jco = jco.loc[:,jco.columns.map(lambda x: "kg" in x)]
     #fosm_jco = jco.loc[:,fosm_pars]
     #print(fosm_jco.loc[pst.nnz_obs_names,:])
-    for oname in pst.nnz_obs_names:
 
-        print(oname,"\n",jco.loc[oname,:])
+def prep_for_risk_sweep():
+    d = "test"
+    if os.path.exists(d):
+        shutil.rmtree(d)
+    shutil.copytree(new_model_ws,d)
+    pst_file = os.path.join(new_model_ws, "freyberg.pst")
+    pst = pyemu.Pst(pst_file)
+    pst.control_data.noptmax = -1
+    pst.write(os.path.join(new_model_ws,"restart.pst"))
+    pyemu.helpers.start_slaves(new_model_ws,"pestpp","restart.pst",num_slaves=15,master_dir=d,
+                               slave_root='.',port=4005)
+    r_d = "_restart_files"
+    if os.path.exists(r_d):
+        shutil.rmtree(r_d)
+    os.mkdir(r_d)
+    files = ["restart.rei","restart.jcb"]
+    for f in files:
+        shutil.copy2(os.path.join(d,f),os.path.join(r_d,f))
 
 def run_risk_sweep():
-    sw_conc_inc = 1.5
-    wel_mass_inc = 1.5
-    chd_mass_inc = 1.5
-    sw_conc_const = "sfrc20_1_03650.00"
-    wel_mass_const = "gw_we1c_003650.0"
-    chd_mass_const = "gw_cohe1c_003650.0"
 
-    results_d = "results_test"
+    results_d = "sweep_results"
     if os.path.exists(results_d):
         shutil.rmtree(results_d)
     os.mkdir(results_d)
@@ -361,13 +408,6 @@ def run_risk_sweep():
     pst.pestpp_options["hotstart_resfile"] = "restart.rei"
     pst.pestpp_options["opt_skip_final"] = "true"
 
-    # for inc,nme in zip([sw_conc_inc,wel_mass_inc,chd_mass_inc],
-    #                    [sw_conc_const,wel_mass_const,chd_mass_const]):
-    #     pst.observation_data.loc[nme,"obsval"] *= inc
-
-    obs = pst.observation_data
-    obs.loc[sw_conc_const,"obsval"] *= sw_conc_inc
-
     pst.control_data.noptmax = 1
     risks = np.arange(0.01, 1.0, 0.01)
 
@@ -385,143 +425,130 @@ def run_risk_sweep():
         infeas.append(inf)
 
     df = pd.DataFrame({"risk": risks, "phi": phis, "infeas": infeas})
+    df.loc[:,"phi"] *= phi_factor
     df.to_csv(os.path.join(results_d, "base.csv"))
     df.loc[df.infeas,"phi"] = np.NaN
     ax = plt.subplot(111)
     ax.plot(df.risk,df.phi)
     ax.set_xlabel("risk")
-    ax.set_ylabel("$\phi$")
+    ax.set_ylabel("$\phi (\\$) $")
     ax.grid()
     plt.savefig("risk.pdf")
 
+
 def run_risk_sweep_pargp():
-    sw_conc_inc = 1.1
-    wel_mass_inc = 1.1
-    chd_mass_inc = 1.1
-    results_d = "results_test"
-    restart_d = "test"
-    if os.path.exists(restart_d):
-        shutil.rmtree(restart_d)
-    shutil.copytree(new_model_ws, restart_d)
-    for f in os.listdir("_restart_files"):
-        shutil.copy2(os.path.join("_restart_files",f),os.path.join(restart_d,f))
 
-    pst = pyemu.Pst(os.path.join(new_model_ws,"freyberg.pst"))
-    pst.pestpp_options["base_jacobian"] = "restart.jcb"
-    pst.pestpp_options["hotstart_resfile"] = "restart.rei"
-    pst.pestpp_options["opt_skip_final"] = "true"
-
-    pst.control_data.noptmax = 1
-    risks = np.arange(0.01,1.0,0.01)
-
-    if os.path.exists("results"):
-        shutil.rmtree("results")
-    os.mkdir("results")
-
-    phis, infeas = [], []
-    for risk in risks:
-        pst.pestpp_options["opt_risk"] = risk
-        pst.write(os.path.join(restart_d, "freyberg.pst"))
-        pyemu.helpers.run("pestpp-opt freyberg.pst", cwd=restart_d)
-        inf, phi = scrape_recfile(os.path.join(restart_d, "freyberg.rec"))
-        phis.append(phi)
-        infeas.append(inf)
-
-    df = pd.DataFrame({"risk": risks, "phi": phis, "infeas": infeas})
-    df.to_csv(os.path.join("results", "base.csv"))
-
-    jco = pyemu.Jco.from_binary(os.path.join(restart_d,"restart.jcb"))
-    for pargp in pst.par_groups:
-        if pargp == "kg":
-            continue
-        pst = pyemu.Pst(os.path.join(new_model_ws, "freyberg.pst"))
-        pst.pestpp_options["base_jacobian"] = "restart_pargp.jcb"
-        pst.pestpp_options["hotstart_resfile"] = "restart.rei"
-        pst.pestpp_options["opt_skip_final"] = "true"
-        pst.control_data.noptmax = 1
-        par = pst.parameter_data
-        par.loc[par.pargp==pargp,"partrans"] = "fixed"
-        jco_pargp = jco.get(col_names=pst.adj_par_names)
-        jco_pargp.to_binary(os.path.join(restart_d,"restart_pargp.jcb"))
-
-        phis,infeas = [],[]
-        for risk in risks:
-            pst.pestpp_options["opt_risk"] = risk
-            pst.write(os.path.join(restart_d,"freyberg.pst"))
-            pyemu.helpers.run("pestpp-opt freyberg.pst",cwd=restart_d)
-            inf,phi = scrape_recfile(os.path.join(restart_d,"freyberg.rec"))
-            phis.append(phi)
-            infeas.append(inf)
-
-
-
-        df = pd.DataFrame({"risk":risks,"phi":phis,"infeas":infeas})
-        df.to_csv(os.path.join("results","{0}.csv".format(pargp)))
-        #break
-
-    # df.loc[df.infeas,"phi"] = np.NaN
-    # ax = plt.subplot(111)
-    # ax.plot(df.risk,df.phi)
-    # ax.set_xlabel("risk")
-    # ax.set_ylabel("$\phi$")
-    # ax.grid()
-    # plt.savefig("risk.pdf")
-
-def run_risk_sweep_obgnme():
-    restart_d = "test"
-    if os.path.exists(restart_d):
-        shutil.rmtree(restart_d)
-    shutil.copytree(new_model_ws, restart_d)
-    for f in os.listdir("_restart_files"):
-        shutil.copy2(os.path.join("_restart_files", f), os.path.join(restart_d, f))
-
+    results_d = "results_pargp1"
+    if os.path.exists(results_d):
+        shutil.rmtree(results_d)
+    os.mkdir(results_d)
+    
     pst = pyemu.Pst(os.path.join(new_model_ws, "freyberg.pst"))
     pst.pestpp_options["base_jacobian"] = "restart.jcb"
     pst.pestpp_options["hotstart_resfile"] = "restart.rei"
     pst.pestpp_options["opt_skip_final"] = "true"
-
+    par = pst.parameter_data
+    cn_pars = par.loc[par.pargp=="cn","parnme"]
+    par.loc[cn_pars,"pargp"] = cn_pars.apply(lambda x:x.split('_')[0]+"_mean")
+    par_base = pst.parameter_data.copy()
     pst.control_data.noptmax = 1
-    risks = np.arange(0.01, 1.0, 0.01)
-
-    if os.path.exists("results_obs"):
-        shutil.rmtree("results_obs")
-    os.mkdir("results_obs")
-
-    phis, infeas = [], []
-    for risk in risks:
-        pst.pestpp_options["opt_risk"] = risk
-        pst.write(os.path.join(restart_d, "freyberg.pst"))
-        pyemu.helpers.run("pestpp-opt freyberg.pst", cwd=restart_d)
-        inf, phi = scrape_recfile(os.path.join(restart_d, "freyberg.rec"))
-        phis.append(phi)
-        infeas.append(inf)
-
-    df = pd.DataFrame({"risk": risks, "phi": phis, "infeas": infeas})
-    df.to_csv(os.path.join("results_obs", "base.csv"))
-
-    jco = pyemu.Jco.from_binary(os.path.join(restart_d, "restart.jcb"))
-    for gp in pst.obs_groups:
-        if gp.startswith("less") or gp.startswith("great"):
-            continue
-        pst = pyemu.Pst(os.path.join(new_model_ws, "freyberg.pst"))
-        pst.pestpp_options["base_jacobian"] = "restart.jcb"
-        pst.pestpp_options["hotstart_resfile"] = "restart.rei"
-        pst.pestpp_options["opt_skip_final"] = "true"
-        pst.control_data.noptmax = 1
-        obs = pst.observation_data
-        obs.loc[obs.obgnme==gp,"weight"] = 1.0
-
+    risks = np.arange(0.1, 1.1, 0.1)
+    
+    def run(name, pst):
+        d = "test"
+        if os.path.exists(d):
+            shutil.rmtree(d)
+        shutil.copytree(new_model_ws, d)
+        for f in os.listdir("_restart_files"):
+            shutil.copy2(os.path.join("_restart_files", f), os.path.join(d, f))
         phis, infeas = [], []
         for risk in risks:
             pst.pestpp_options["opt_risk"] = risk
-            pst.write(os.path.join(restart_d, "freyberg.pst"))
-            pyemu.helpers.run("pestpp-opt freyberg.pst", cwd=restart_d)
-            inf, phi = scrape_recfile(os.path.join(restart_d, "freyberg.rec"))
+            pst.write(os.path.join(d, "freyberg.pst"))
+            pyemu.helpers.run("pestpp-opt freyberg.pst", cwd=d)
+            inf, phi = scrape_recfile(os.path.join(d, "freyberg.rec"))
             phis.append(phi)
             infeas.append(inf)
 
         df = pd.DataFrame({"risk": risks, "phi": phis, "infeas": infeas})
-        df.to_csv(os.path.join("results_obs", "{0}.csv".format(pargp)))
+        df.to_csv(os.path.join(results_d, "{0}.csv".format(name)))
+
+    run("base",pst)
+
+    # for pargp in pst.par_groups:
+    #     if pargp == "kg":
+    #         continue
+    #     par = par_base.copy()
+    #     par.loc[par.pargp==pargp,"partrans"] = "fixed"
+    #     pst.parameter_data = par
+    #     run(pargp,pst)
+    for prefix in ["hk","rc","rech","prst"]:
+        par = par_base.copy()
+        par.loc[par.pargp.apply(lambda x:prefix in x),"partrans"] = "fixed"
+
+        pst.parameter_data = par
+        #print(pst.parameter_data.loc[pst.parameter_data.partrans == "fixed", :])
+        run(prefix,pst)
+
+
+
+
+def run_risk_sweep_obgnme():
+
+    results_d = "results_obgnme"
+    if os.path.exists(results_d):
+        shutil.rmtree(results_d)
+    os.mkdir(results_d)
+    
+    pst = pyemu.Pst(os.path.join(new_model_ws, "freyberg.pst"))
+    pst.pestpp_options["base_jacobian"] = "restart.jcb"
+    pst.pestpp_options["hotstart_resfile"] = "restart.rei"
+    pst.pestpp_options["opt_skip_final"] = "true"
+    pst.control_data.noptmax = 1
+    risks = np.arange(0.1, 1.1, 0.1)
+    
+    def run(name, pst):
+        d = "test"
+        if os.path.exists(d):
+            shutil.rmtree(d)
+        shutil.copytree(new_model_ws, d)
+        for f in os.listdir("_restart_files"):
+            shutil.copy2(os.path.join("_restart_files", f), os.path.join(d, f))
+        phis, infeas = [], []
+        for risk in risks:
+            pst.pestpp_options["opt_risk"] = risk
+            pst.write(os.path.join(d, "freyberg.pst"))
+            pyemu.helpers.run("pestpp-opt freyberg.pst", cwd=d)
+            inf, phi = scrape_recfile(os.path.join(d, "freyberg.rec"))
+            phis.append(phi)
+            infeas.append(inf)
+
+        df = pd.DataFrame({"risk": risks, "phi": phis, "infeas": infeas})
+        df.to_csv(os.path.join(results_d, "{0}.csv".format(name)))
+
+    run("base",pst)
+
+    # for pargp in pst.par_groups:
+    #     if pargp == "kg":
+    #         continue
+    #     par = par_base.copy()
+    #     par.loc[par.pargp==pargp,"partrans"] = "fixed"
+    #     pst.parameter_data = par
+    #     run(pargp,pst)
+
+    for obgnme in pst.obs_groups:
+        if "less_" in obgnme:
+            continue
+        print()
+        continue
+        obs = obs_base.copy()
+        obs.loc[obs.obgnme==obgnme,"weight"] = 1.0
+
+        pst.observation_data = obs
+        #print(pst.parameter_data.loc[pst.parameter_data.partrans == "fixed", :])
+        run(prefix,pst)
+
+
 
 def scrape_recfile(recfile):
     infeas = False
@@ -545,7 +572,7 @@ def plot_risk_sweep():
     ax.legend()
     plt.savefig("risk_sweep.pdf")
 
-def plot_loading(parfile=None):
+def plot_loading():
     pst = pyemu.Pst(os.path.join("template","freyberg.pst"))
     m = flopy.modflow.Modflow.load("freyberg.truth.nam",model_ws="template",load_only=[],check=False)
     print(pst.nnz_obs_names)
@@ -561,41 +588,54 @@ def plot_loading(parfile=None):
     #print(seg_j)
     seg_j = 16
     seg_x,seg_y = m.sr.xcentergrid[seg_i,seg_j],m.sr.ycentergrid[seg_i,seg_j]
-    if parfile is not None:
-        df = pyemu.pst_utils.read_parfile(parfile)
-    else:
-        df = pyemu.pst_utils.read_parfile(os.path.join("master_opt","freyberg.{0}.par".format(pst.control_data.noptmax)))
+    dfs = [] 
+    mx,mn = -1.0e+10,1.0e+10
+    for i in range(pst.control_data.noptmax):
+        par_file = os.path.join("master","freyberg.{0}.par".format(i+1))
+        if not os.path.exists(par_file):
+            break
+        df = pyemu.pst_utils.read_parfile(par_file)
 
-    df = df.loc[df.parnme.apply(lambda x: x.startswith("k_")),:]
-    #print(df)
-    df.loc[:,"i"] = df.parnme.apply(lambda x: int(x.split('_')[1]))
-    df.loc[:,"j"] = df.parnme.apply(lambda x: int(x.split('_')[2]))
-    arr = np.zeros((40,20)) - 1
-    arr[df.i,df.j] = df.parval1
-    arr = np.ma.masked_where(arr<0,arr)
-    ax = plt.subplot(111)
+        df = df.loc[df.parnme.apply(lambda x: x.startswith("k_")),:]
+        #print(df)
+        df.loc[:,"i"] = df.parnme.apply(lambda x: int(x.split('_')[1]))
+        df.loc[:,"j"] = df.parnme.apply(lambda x: int(x.split('_')[2]))
+        df.loc[df.parval1<0,"parval1"] = 0.0
+        mx = max(mx,df.parval1.max())
+        mn = min(mn,df.parval1.min())
+        dfs.append(df)
+    for df in dfs:
+        arr = np.zeros((40,20)) - 1
+        arr[df.i,df.j] = df.parval1
+        arr = np.ma.masked_where(arr<0,arr)
+        ax = plt.subplot(111)
 
-    cb = ax.imshow(arr,extent=m.sr.get_extent())
-    c = plt.colorbar(cb)
-    c.set_label("N loading")
-    ax.scatter(nz_obs.x,nz_obs.y,marker='x',color='r')
-    ax.scatter([seg_x],[seg_y],marker='^',color='r')
-    plt.show()
+        cb = ax.imshow(arr,extent=m.sr.get_extent(),vmin=mn,vmax=mx)
+        c = plt.colorbar(cb)
+        c.set_label("N loading")
+        ax.scatter(nz_obs.x,nz_obs.y,marker='x',color='r')
+        ax.scatter([seg_x],[seg_y],marker='^',color='r')
+        plt.show()
 
 
 
 if __name__ == "__main__":
     #write_ssm_tpl()
     #run_test()
-    #setup_models()
-    #setup_pest()
+    setup_models()
+    setup_pest()
     #spike_test()
     #start_slaves()
     #run_pestpp_opt()
+    
+    prep_for_risk_sweep()
     #jco_invest()
     #run_risk_sweep()
+    #run_risk_sweep_pargp()
+    #plot_risk_sweep_pargp()
+
     plot_loading()
     #plot_risk_sweep()
-    #run_risk_sweep_obgnme()
+    run_risk_sweep_obgnme()
     #run_risk_sweep()
 
