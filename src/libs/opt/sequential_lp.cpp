@@ -936,34 +936,43 @@ void sequentialLP::initialize_and_check()
 			}
 
 
-			string parcov_filename = pest_scenario.get_pestpp_options().get_parcov_filename();
-			//build the adjustable parameter parcov
-			//from filename
+			//string parcov_filename = pest_scenario.get_pestpp_options().get_parcov_filename();
+			////build the adjustable parameter parcov
+			////from filename
 
-			if (parcov_filename.size() > 0)
+			//if (parcov_filename.size() > 0)
+			//{
+			//	//throw_sequentialLP_error("parcov from filename not implemented");
+			//	Covariance temp_parcov ;
+			//	temp_parcov.from_ascii(parcov_filename);
+			//	//check that all adj par names in temp_parcov
+			//	vector<string> temp_names = temp_parcov.get_col_names();
+			//	start = temp_names.begin();
+			//	end = temp_names.end();
+			//	vector<string> missing;
+			//	for (auto &name : adj_par_names)
+			//		if (find(start, end, name) == end)
+			//			missing.push_back(name);
+			//	if (missing.size() > 0)
+			//		throw_sequentialLP_error("the following adjustable parameters were not found in the ++parcov_filename covaraince matrix: ", missing);
+
+			//	parcov = temp_parcov.get(adj_par_names);
+
+			//}
+			////from parameter bounds
+			//else
+			//{
+			//	parcov.from_parameter_bounds(adj_par_names, pest_scenario.get_ctl_parameter_info());
+			//}
+			vector<string> drop;
+			set<string> sadj(adj_par_names.begin(), adj_par_names.end());
+			for (auto &n : parcov.get_row_names())
 			{
-				//throw_sequentialLP_error("parcov from filename not implemented");
-				Covariance temp_parcov;
-				temp_parcov.from_ascii(parcov_filename);
-				//check that all adj par names in temp_parcov
-				vector<string> temp_names = temp_parcov.get_col_names();
-				start = temp_names.begin();
-				end = temp_names.end();
-				vector<string> missing;
-				for (auto &name : adj_par_names)
-					if (find(start, end, name) == end)
-						missing.push_back(name);
-				if (missing.size() > 0)
-					throw_sequentialLP_error("the following adjustable parameters were not found in the ++parcov_filename covaraince matrix: ", missing);
-
-				parcov = temp_parcov.get(adj_par_names);
-
+				if (sadj.find(n) == sadj.end())
+					drop.push_back(n);
 			}
-			//from parameter bounds
-			else
-			{
-				parcov.from_parameter_bounds(adj_par_names, pest_scenario.get_ctl_parameter_info());
-			}
+			parcov.drop(drop);
+
 
 			//build the nz_obs obs_cov
 			if (num_nz_obs() != 0)
@@ -1552,13 +1561,16 @@ void sequentialLP::iter_postsolve()
 
 	Observations upgrade_obs = constraints_sim;
 	if (!super_secret_option)
-		bool success = make_upgrade_run(upgrade_pars,upgrade_obs);
+	{
+		bool success = make_upgrade_run(upgrade_pars, upgrade_obs);
 
-	f_rec << "  ---  processing results for iteration " << slp_iter << " LP solution  ---  " << endl << endl;
+		f_rec << "  ---  processing results for iteration " << slp_iter << " LP solution  ---  " << endl << endl;
+		postsolve_constraint_report(upgrade_obs, upgrade_pars);
+	}
 	double obj_val = model.getObjValue();
 	
 	pair<double,double> cur_new_obj = postsolve_decision_var_report(upgrade_pars);
-	postsolve_constraint_report(upgrade_obs,upgrade_pars);
+	
 	
 	f_rec << endl << endl <<  "  ---  iteration " << slp_iter << " objective function value: " << setw(15) << cur_new_obj.second << "  ---  " << endl << endl;
 	cout << endl << endl << "  ---  iteration " << slp_iter << " objective function value: " << setw(15) << cur_new_obj.second << "  ---  " << endl << endl;
@@ -1600,6 +1612,13 @@ void sequentialLP::iter_postsolve()
 	max_abs_constraint_change /= max(max_abs_constraint_val,1.0);
 
 	pair<map<string,double>, map<string,double>> invalid_vars_const = postsolve_check(upgrade_obs, upgrade_pars);
+
+	if (super_secret_option)
+	{
+		f_rec << "super secret option active...done" << endl;
+		return;
+	}
+
 
 	//convergence check
 	double opt_iter_tol = pest_scenario.get_pestpp_options().get_opt_iter_tol();
