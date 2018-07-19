@@ -730,6 +730,11 @@ bool IterEnsembleSmoother::initialize_pe(Covariance &cov)
 		if (pp_args.find("IES_NUM_REALS") != pp_args.end())
 		{
 			int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
+			if (pest_scenario.get_pestpp_options().get_ies_include_base())
+			{
+				message(1, "Note: increasing num_reals by 1 to account for 'base' realization in existing par ensemble");
+				num_reals++;
+			}
 			if (num_reals < pe.shape().first)
 			{
 				message(1,"ies_num_reals arg passed, truncated parameter ensemble to ",num_reals);
@@ -942,6 +947,11 @@ bool IterEnsembleSmoother::initialize_oe(Covariance &cov)
 		if (pp_args.find("IES_NUM_REALS") != pp_args.end())
 		{
 			int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
+			if (pest_scenario.get_pestpp_options().get_ies_include_base())
+			{
+				message(1, "Note: increasing num_reals by 1 to account for 'base' realization in existing obs ensemble");
+				num_reals++;
+			}
 			if (num_reals < oe.shape().first)
 			{
 				message(1,"ies_num_reals arg passed, truncated observation ensemble to ",num_reals);
@@ -1162,6 +1172,11 @@ void IterEnsembleSmoother::initialize_restart_oe()
 	if (pp_args.find("IES_NUM_REALS") != pp_args.end())
 	{
 		int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
+		if (pest_scenario.get_pestpp_options().get_ies_include_base())
+		{
+			message(1, "Note: increasing num_reals by 1 to account for 'base' realization in existing obs restart ensemble");
+			num_reals++;
+		}
 		if (num_reals < oe.shape().first)
 		{
 			message(1, "ies_num_reals arg passed, truncated restart obs ensemble to ", num_reals);
@@ -1485,7 +1500,7 @@ void IterEnsembleSmoother::initialize()
 		lam_mults.push_back(1.0);
 	message(1, "using lambda multipliers: ", lam_mults);
 	vector<double> scale_facs = pest_scenario.get_pestpp_options().get_lambda_scale_vec();
-	message(1, "usnig lambda scaling factors: ", scale_facs);
+	message(1, "using lambda scaling factors: ", scale_facs);
 	double acc_fac = pest_scenario.get_pestpp_options().get_ies_accept_phi_fac();
 	message(1, "acceptable phi factor: ", acc_fac);
 	double inc_fac = pest_scenario.get_pestpp_options().get_ies_lambda_inc_fac();
@@ -1514,9 +1529,7 @@ void IterEnsembleSmoother::initialize()
 	
 
 	int num_reals = pest_scenario.get_pestpp_options().get_ies_num_reals();
-	
-	
-	
+
 	bool pe_drawn = initialize_pe(parcov);
 
 	if (pest_scenario.get_pestpp_options().get_ies_use_prior_scaling())
@@ -2354,7 +2367,7 @@ ParameterEnsemble IterEnsembleSmoother::calc_upgrade(vector<string> &obs_names, 
 	upgrade_1.resize(0, 0);*/
 
 	Eigen::MatrixXd upgrade_2;
-	if ((!pest_scenario.get_pestpp_options().get_ies_use_approx()))// && (iter > 1))
+	if ((!pest_scenario.get_pestpp_options().get_ies_use_approx()) && (iter > 1))
 	{
 		performance_log->log_event("calculating parameter correction (full solution)");
 		message(1, "calculating parameter correction (full solution, MAP)");
@@ -3333,6 +3346,7 @@ void IterEnsembleSmoother::set_subset_idx(int size)
 		vector<pair<double, int>> phis;
 		//vector<int> sidx;
 		int step;
+		int idx;
 		PhiHandler::phiType pt = PhiHandler::phiType::COMPOSITE;
 		map<string, double>* phi_map = ph.get_phi_map(pt);
 		map<string, double>::iterator pi = phi_map->begin(), end = phi_map->end();
@@ -3349,22 +3363,20 @@ void IterEnsembleSmoother::set_subset_idx(int size)
 		subset_idxs.push_back(phis[0].second);
 		subset_idxs.push_back(phis[phis.size() - 1].second);//can't get .back() to work with vector<pair<>>
 
-													 //start near middle, work out
-													 //start with mid, moving up and down gives more than enough
-		int mid = phis.size() / 2;
-		step = phis.size() / nreal_subset;
-		for (i = 0; i < nreal_subset; ++i)
+		step = (phis.size()-1) / nreal_subset;
+		//cout << step << endl;
+		//cout << (phis.size() - 1) << endl;
+		for (i = 1; i < nreal_subset; ++i)
 		{
 			//add higher phis first
-			if ((subset_idxs.size() < nreal_subset) && (find(subset_idxs.begin(), subset_idxs.end(), phis[mid + i * step].second) == subset_idxs.end()))
+			idx = phis.size() - (i * step);
+			if ((subset_idxs.size() < nreal_subset) && (find(subset_idxs.begin(), subset_idxs.end(), phis[idx].second) == subset_idxs.end()))
 			{
-				// slopy but otherwise hard to ensure nsubsets and good spread
-				subset_idxs.push_back(phis[mid + i * step].second);
-			}
-			if ((subset_idxs.size() < nreal_subset) && (find(subset_idxs.begin(), subset_idxs.end(), phis[mid - i * step].second) == subset_idxs.end()))
-			{
-				// slopy but otherwise hard to ensure nsubsets and good spread
-				subset_idxs.push_back(phis[mid - i * step].second);
+				subset_idxs.push_back(phis[idx].second);
+				//cout << i << endl;
+				//cout << idx << endl;
+				//cout << phis[idx].first << endl;
+				//cout << phis[idx].second << endl;
 			}
 		}
 	}
