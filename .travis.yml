@@ -42,7 +42,9 @@ script:
   - export PYTHONPATH=$PYTHONPATH:.
   - #cd benchmarks
   - export PATH="./test_bin/linux:../test_bin/linux:../../test_bin/linux:$PATH"
-  - nosetests -v -w ./benchmarks travis_tests.py  
+  - #nosetests -v -w ./benchmarks travis_tests.py 
+  - nosetests -v -w ./benchmarks ci_prep.py
+  - nosetests -v -w ./benchmarks ies_test.py opt_test.py
 
 notifications:
   email: true
