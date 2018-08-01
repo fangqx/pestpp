@@ -1185,6 +1185,7 @@ ModelRun SVDSolver::iteration_upgrd(RunManagerAbstract &run_manager, Termination
 	os << "  Summary of upgrade runs:" << endl;
 
 	int n_runs = run_manager.get_nruns();
+	bool one_success = false;
 	for (int i = 1; i < n_runs; ++i) {
 		ModelRun upgrade_run(base_run);
 		Parameters tmp_pars;
@@ -1195,6 +1196,7 @@ ModelRun SVDSolver::iteration_upgrd(RunManagerAbstract &run_manager, Termination
 		bool success = run_manager.get_run(i, tmp_pars, tmp_obs, lambda_type, i_lambda);
 		if (success)
 		{
+			one_success = true;
 			par_transform.model2ctl_ip(tmp_pars);
 			upgrade_run.update_ctl(tmp_pars, tmp_obs);
 
@@ -1258,6 +1260,11 @@ ModelRun SVDSolver::iteration_upgrd(RunManagerAbstract &run_manager, Termination
 
 	// clean up run_manager memory
 	run_manager.free_memory();
+
+	if (!one_success)
+	{
+		throw runtime_error("all upgrade runs failed.");
+	}
 
 	return best_upgrade_run;
 }
