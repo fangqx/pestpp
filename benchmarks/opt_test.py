@@ -4,12 +4,16 @@ import platform
 import numpy as np
 import pyemu
 
+exe_name = "pestpp-opt"
 if "windows" in platform.platform().lower():
-    exe_path = os.path.join("..", "..", "..", "exe", "windows", "x64", "Release", "pestpp-opt.exe")
+    exe_path = os.path.join("..", "..", "..", "exe", "windows", "x64", "Release", exe_name)
+    # trap for intel branch
+    if not os.path.exists(exe_path+".exe"):
+        exe_path = exe_path.replace(exe_name,"i"+exe_name)
 elif "darwin" in platform.platform().lower():
-    exe_path = os.path.join("..", "..", "..", "exe", "mac", "pestpp-opt")
+    exe_path = os.path.join("..", "..", "..", "exe", "mac", exe_name)
 else:
-    exe_path = os.path.join("..", "..", "..", "exe", "linux", "pestpp-opt")
+    exe_path = os.path.join("..", "..", "..", "exe", "linux", exe_name)
 
 
 def std_weights_test():

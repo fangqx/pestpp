@@ -30,12 +30,20 @@ ies_vars = ["ies_par_csv", "ies_obs_csv", "ies_restart_obs_csv",
             "ies_use_approx", "ies_use_prior_scaling", "ies_reg_factor",
             "ies_lambda_mults", "ies_initial_lambda","ies_include_base","ies_subset_size"]
 
+exe_name = "pestpp-ies"
+
+
 if "windows" in platform.platform().lower():
-    exe_path = os.path.join("..", "..", "..", "exe", "windows", "x64", "Release", "pestpp-ies.exe")
+    exe_path = os.path.join("..", "..", "..", "exe", "windows", "x64", "Release", exe_name)
+    # trap for intel branch
+    if not os.path.exists(exe_path+".exe"):
+        exe_path = exe_path.replace(exe_name,"i"+exe_name)
 elif "darwin" in platform.platform().lower():
-    exe_path = os.path.join("..", "..", "..", "exe", "mac", "pestpp-ies")
+    exe_path = os.path.join("..", "..", "..", "exe", "mac", exe_name)
 else:
-    exe_path = os.path.join("..", "..", "..", "exe", "linux", "pestpp-ies")
+    exe_path = os.path.join("..", "..", "..", "exe", "linux", exe_name)
+
+
 
 noptmax = 3
 
