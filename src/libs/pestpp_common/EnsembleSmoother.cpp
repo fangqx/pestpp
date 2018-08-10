@@ -1042,7 +1042,21 @@ void IterEnsembleSmoother::sanity_checks()
 	string obs_csv = ppo->get_ies_obs_csv();
 	string restart = ppo->get_ies_obs_restart_csv();
 
+	if (pest_scenario.get_control_info().pestmode == ControlInfo::PestMode::REGUL)
+	{
+		warnings.push_back("'pestmode' == 'regularization', in pestpp-ies, this is controlled with the ++ies_reg_factor argument, resetting to 'estimation'");
+		//throw_ies_error("'pestmode' == 'regularization', please reset to 'estimation'");
+	}
+	else if (pest_scenario.get_control_info().pestmode == ControlInfo::PestMode::UNKNOWN)
+	{
+		warnings.push_back("unrecognized 'pestmode', using 'estimation'");
+	}
 
+
+	if (pest_scenario.get_ctl_ordered_pi_names().size() > 0)
+	{
+		warnings.push_back("prior information equations not supported in pestpp-ies, ignoring...");
+	}
 	double acc_phi = ppo->get_ies_accept_phi_fac();
 	if (acc_phi < 1.0)
 		errors.push_back("ies_accept_phi_fac < 1.0, not good!");
@@ -1115,6 +1129,7 @@ void IterEnsembleSmoother::sanity_checks()
 		message(0, "sanity_check warnings");
 		for (auto &w : warnings)
 			message(1, w);
+		message(1, "continuing initialization...");
 	}
 	if (errors.size() > 0)
 	{
@@ -1441,16 +1456,8 @@ void IterEnsembleSmoother::initialize()
 	act_obs_names = pest_scenario.get_ctl_ordered_nz_obs_names();
 	act_par_names = pest_scenario.get_ctl_ordered_adj_par_names();
 
-	if (pest_scenario.get_control_info().pestmode == ControlInfo::PestMode::REGUL)
-	{
-		message(1, "WARNING: 'pestmode' == 'regularization', in pestpp-ies, this is controlled with the ++ies_reg_factor argument, resetting to 'estimation'");
-		//throw_ies_error("'pestmode' == 'regularization', please reset to 'estimation'");
-	}
-	else if (pest_scenario.get_control_info().pestmode == ControlInfo::PestMode::UNKNOWN)
-	{
-		message(1,"WARNING: unrecognized 'pestmode', using 'estimation'");
-	}
-	else if ((pest_scenario.get_control_info().pestmode == ControlInfo::PestMode::PARETO))
+	
+	if ((pest_scenario.get_control_info().pestmode == ControlInfo::PestMode::PARETO))
 	{
 		message(1, "using pestpp-ies 'pareto' mode");
 		string pobs_group = pest_scenario.get_pareto_info().obsgroup;
@@ -1493,10 +1500,7 @@ void IterEnsembleSmoother::initialize()
 		//throw_ies_error("pareto mode not finished");
 	}
 
-	if (pest_scenario.get_ctl_ordered_pi_names().size() > 0)
-	{
-		message(1, "WARNING: prior information equations not supported in pestpp-ies, ignoring...");
-	}
+	
 
 	lam_mults = pest_scenario.get_pestpp_options().get_ies_lam_mults();
 	if (lam_mults.size() == 0)
@@ -2227,21 +2231,17 @@ bool IterEnsembleSmoother::should_terminate()
 ParameterEnsemble IterEnsembleSmoother::calc_upgrade(vector<string> &obs_names, vector<string> &par_names,double cur_lam, int num_reals, string local_col_name)
 {
 
-	stringstream ss;
+	//---------
+	//not thread safe section
+	//---------
 
-	//make sure par_names are in pe var_names and obs_names in oe var_names
+	int maxsing = pest_scenario.get_svd_info().maxsing;
+	double eigthresh = pest_scenario.get_svd_info().eigthresh;
 
-	//use num_reals to select out a block from eigen, rather than getting and reordering ensembles
-
-	/*ObservationEnsemble oe_upgrade = oe;
-	oe_upgrade.reorder(vector<string>(), obs_names);*/
 	ObservationEnsemble oe_upgrade(oe.get_pest_scenario_ptr(), oe.get_eigen(vector<string>(), obs_names, false), oe.get_real_names(), obs_names);
-
-	
-	/*ParameterEnsemble pe_upgrade = pe;
-	pe_upgrade.reorder(vector<string>(), par_names);*/
 	ParameterEnsemble pe_upgrade(pe.get_pest_scenario_ptr(), pe.get_eigen(vector<string>(), par_names, false), pe.get_real_names(), par_names);
 
+	//todo: pre-extract the diagonal of the prior, invert and store in faster lookup container
 	Eigen::DiagonalMatrix<double, Eigen::Dynamic> parcov_inv;// = parcov.get(par_names).inv().e_ptr()->toDense().cwiseSqrt().asDiagonal();
 	if (parcov.isdiagonal())
 		parcov_inv = parcov.get(par_names).inv().get_matrix().diagonal().cwiseSqrt().asDiagonal();
@@ -2249,27 +2249,26 @@ ParameterEnsemble IterEnsembleSmoother::calc_upgrade(vector<string> &obs_names, 
 	{
 		message(2, "first extracting diagonal from prior parameter covariance matrix");
 		Covariance parcov_diag;
-		Covariance parcov_local = parcov.get(par_names,false);
+		Covariance parcov_local = parcov.get(par_names, false);
 		parcov_diag.from_diagonal(parcov_local);
 		parcov_inv = parcov_diag.inv().get_matrix().diagonal().cwiseSqrt().asDiagonal();
 	}
 
-
-	double scale = (1.0 / (sqrt(double(oe_upgrade.shape().first - 1))));
+	//todo: pre-extract the weights and store in a faster lookup container
 	Eigen::VectorXd weight_vec(obs_names.size());
 	for (int i = 0; i < obs_names.size(); i++)
 	{
 		weight_vec[i] = pest_scenario.get_observation_info_ptr()->get_weight(obs_names[i]);
 	}
-	Eigen::DiagonalMatrix<double,Eigen::Dynamic> weights = weight_vec.asDiagonal();
+	Eigen::DiagonalMatrix<double, Eigen::Dynamic> weights = weight_vec.asDiagonal();
 
+	//this one is prob gonna be a big bottle neck. Does each thread get a copy of oe_base?    
 	performance_log->log_event("calculate residual matrix");
 	//oe_base var_names should be ordered by act_obs_names, so only reorder real_names
 	//oe should only include active realizations, so only reorder var_names
 	message(2, "calculating residual matrix");
 	//Eigen::MatrixXd scaled_residual = obscov_inv_sqrt * ph.get_obs_resid(oe).transpose();
 	Eigen::MatrixXd scaled_residual = weights * ph.get_obs_resid_subset(oe_upgrade).transpose();
-
 	if (verbose_level > 1)
 	{
 		cout << "scaled_residual: " << scaled_residual.rows() << ',' << scaled_residual.cols() << endl;
@@ -2281,14 +2280,10 @@ ParameterEnsemble IterEnsembleSmoother::calc_upgrade(vector<string> &obs_names, 
 		}
 	}
 
-	
-	//performance_log->log_event("calculate scaled obs diff");
-	message(2, "calculating obs diff matrix");
-	Eigen::MatrixXd diff = oe_upgrade.get_eigen_mean_diff().transpose();
+	Eigen::MatrixXd loc(oe_upgrade.shape().second, oe_upgrade.shape().first);
 	if (local_col_name.size() > 0)
-
 	{
-		Eigen::MatrixXd loc(oe_upgrade.shape().second, oe_upgrade.shape().first);
+		
 		message(2, "getting localizing hadamard matrix");
 		loc = localizer.get_localizing_hadamard_matrix(oe_upgrade.shape().first, local_col_name, obs_names);
 		if (verbose_level > 1)
@@ -2297,8 +2292,42 @@ ParameterEnsemble IterEnsembleSmoother::calc_upgrade(vector<string> &obs_names, 
 			if (verbose_level > 2)
 				save_mat("local_mat.dat", loc);
 		}
-		diff = diff.cwiseProduct(loc);
+		
 	}
+
+	Eigen::MatrixXd scaled_par_resid;
+	Eigen::MatrixXd Am;
+	if ((!pest_scenario.get_pestpp_options().get_ies_use_approx()) && (iter > 1))
+	{
+		Am = get_Am(pe.get_real_names(), par_names);
+		message(2, "calculating parameter correction (full solution, MAP)");
+		performance_log->log_event("forming scaled par resid");
+
+		if (pest_scenario.get_pestpp_options().get_ies_use_prior_scaling())
+		{
+			//throw runtime_error("parcov scaling not implemented for localization");
+			scaled_par_resid = parcov_inv * ph.get_par_resid(pe_upgrade).transpose();
+		}
+		else
+		{
+			scaled_par_resid = ph.get_par_resid_subset(pe_upgrade).transpose();
+		}
+	}
+
+	//----------
+	// threads safe
+	//----------
+
+
+	stringstream ss;
+
+	double scale = (1.0 / (sqrt(double(oe_upgrade.shape().first - 1))));
+	
+	
+	message(2, "calculating obs diff matrix");
+	Eigen::MatrixXd diff = oe_upgrade.get_eigen_mean_diff().transpose();
+	if (local_col_name.size() > 0)
+		diff = diff.cwiseProduct(loc);
 		
 	Eigen::MatrixXd obs_diff = scale * (weights * diff);
 	if (verbose_level > 1)
@@ -2337,9 +2366,9 @@ ParameterEnsemble IterEnsembleSmoother::calc_upgrade(vector<string> &obs_names, 
 
 
 	//SVD_REDSVD rsvd;
-	SVD_EIGEN rsvd;
+	SVD_REDSVD rsvd;
 	rsvd.set_performance_log(performance_log);
-	rsvd.solve_ip(obs_diff, s, Ut, V, pest_scenario.get_svd_info().eigthresh, pest_scenario.get_svd_info().maxsing);
+	rsvd.solve_ip(obs_diff, s, Ut, V, eigthresh, maxsing);
 
 	//SVD_EIGEN esvd;
 	//esvd.set_performance_log(performance_log);
@@ -2361,15 +2390,6 @@ ParameterEnsemble IterEnsembleSmoother::calc_upgrade(vector<string> &obs_names, 
 		}
 	}
 
-	//vector<ParameterEnsemble> pe_lams;
-	//vector<double> lam_vals, scale_vals;
-
-	/*ss.str("");
-	ss << "starting calcs for lambda" << cur_lam;
-	message(0, "starting lambda calcs for lambda", cur_lam);\
-	performance_log->log_event(ss.str());*/
-
-	//performance_log->log_event("form scaled identity matrix");
 	message(2, "calculating scaled identity matrix");
 	ivec = ((Eigen::VectorXd::Ones(s2.size()) * (cur_lam + 1.0)) + s2).asDiagonal().inverse();
 	if (verbose_level > 1)
@@ -2378,7 +2398,6 @@ ParameterEnsemble IterEnsembleSmoother::calc_upgrade(vector<string> &obs_names, 
 		if (verbose_level > 2)
 			save_mat("ivec.dat", ivec);
 	}
-
 
 	message(2, "forming X1");
 	Eigen::MatrixXd X1 = Ut * scaled_residual;
@@ -2429,30 +2448,12 @@ ParameterEnsemble IterEnsembleSmoother::calc_upgrade(vector<string> &obs_names, 
 	}
 	X3.resize(0, 0);
 
-	/*ParameterEnsemble pe_lam = pe;
-	pe_lam.set_eigen(*pe_lam.get_eigen_ptr() + upgrade_1);
-	upgrade_1.resize(0, 0);*/
 
 	Eigen::MatrixXd upgrade_2;
 	if ((!pest_scenario.get_pestpp_options().get_ies_use_approx()) && (iter > 1))
 	{
-		//performance_log->log_event("calculating parameter correction (full solution)");
-		message(2, "calculating parameter correction (full solution, MAP)");
-		performance_log->log_event("forming scaled par resid");
-		Eigen::MatrixXd scaled_par_resid;
-		if (pest_scenario.get_pestpp_options().get_ies_use_prior_scaling())
-		{
-			//throw runtime_error("parcov scaling not implemented for localization");
-			scaled_par_resid = parcov_inv * ph.get_par_resid(pe_upgrade).transpose();
-		}
-		else
-		{
-			scaled_par_resid = ph.get_par_resid_subset(pe_upgrade).transpose();
-		}
+		
 
-		//scaled_par_resid.transposeInPlace();
-
-		//performance_log->log_event("forming x4");
 		message(2, "forming X4");
 		if (verbose_level > 1)
 		{
@@ -2460,7 +2461,7 @@ ParameterEnsemble IterEnsembleSmoother::calc_upgrade(vector<string> &obs_names, 
 			if (verbose_level > 2)
 				save_mat("scaled_par_resid.dat", scaled_par_resid);
 		}
-		Eigen::MatrixXd Am = get_Am(pe.get_real_names(), par_names);
+		
 		Eigen::MatrixXd x4 = Am.transpose() * scaled_par_resid;
 		if (verbose_level > 1)
 		{
