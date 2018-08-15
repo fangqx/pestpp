@@ -50,7 +50,7 @@ module model_input_output_interface
       character (len=200)                :: afile        ! Temporary character storage
       character (len=80)                 :: errsub       ! Character string for error header
       character*500               :: amessage=' ' ! Error message string
-      character (len=20000)               :: dline        ! Character string for text storage
+      character (len=200000)               :: dline        ! Character string for text storage
 
 ! -- SUBROUTINES
 
@@ -842,10 +842,10 @@ subroutine mio_read_model_output_files(ifail,nobs,aobs,obs,instruction)
         integer, intent(out)                            :: ifail   ! error indicator
         integer, intent(in)                             :: nobs    ! number of observations
         !character (len=*), intent(in), dimension(nobs)  :: aobs    ! observation names
-        character*50 :: aobs(nobs)
+        character*200 :: aobs(nobs)
         double precision, intent(out), dimension(nobs)  :: obs     ! observation values
         !character (len=*), intent(out)                  :: instruction ! instruction of error
-        character (len=20000)  :: instruction
+        character (len=200000)  :: instruction
         !character (len=*), optional                     :: asldir   ! slave working directory
         character (len=1)                               :: asldir   ! slave working directory - jwhite
         
@@ -1030,11 +1030,20 @@ subroutine mio_read_model_output_files(ifail,nobs,aobs,obs,instruction)
         else if((instruction(n1:n1).EQ.'w').or.(instruction(n1:n1).eq.'W'))then
           almark=0
           if(j1.ge.nblc) go to 9400
-          j2=index(dline(j1+1:nblc),' ')
-          if(j2.eq.0) go to 9400
-          j1=j1+j2
-          do 210 i=j1,nblc
-            if(dline(i:i).ne.' ') go to 220
+          j2 = 0
+          do i=j1+1,nblc
+            if ((dline(i:i).eq.' ').or.(dline(i:i).eq.',')) then
+              j2 = i
+              goto 202
+            end if
+          end do
+          goto 9400
+202       continue
+          !j2=index(dline(j1+1:nblc),' ')
+          !if(j2.eq.0) go to 9400
+          !j1=j1+j2
+          do 210 i=j2,nblc
+            if((dline(i:i).ne.' ').or.(dline(i:i).ne.',')) go to 220
 210       continue
           i=nblc+1
 220       j1=i-1
@@ -2196,7 +2205,7 @@ end module model_input_output_interface
         character*200 :: aobs(nobs)
         double precision, intent(out), dimension(nobs)  :: obs     ! observation values
         !character (len=*), intent(out)                  :: instruction ! instruction of error
-        character (len=20000)  :: instruction
+        character (len=200000)  :: instruction
         call mio_read_model_output_files(ifail,nobs,aobs,obs,instruction)
         return
     end subroutine mio_read_model_output_files_w
