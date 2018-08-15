@@ -1356,17 +1356,25 @@ subroutine mio_getnxt(ifail,j1,num1,num2,nblc)
 
         ifail=0
         do 20 i=j1+1,nblc
-        if(dline(i:i).ne.' ') go to 50
+        if((dline(i:i).ne.' ').and.(dline(i:i).ne.',')) go to 50
 20      continue
         ifail=1
         return
 50      num1=i
-        i=index(dline(num1:nblc),' ')
-        if(i.eq.0) then
-          num2=nblc
-        else
-          num2=num1+i-2
-        end if
+        do i=num1+1,nblc
+          if ((dline(i:i).eq.' ').or.(dline(i:i).eq.',')) then
+            num2 = i-1
+            goto 51
+          end if
+        end do
+        num2 = nblc
+51      continue
+        !i=index(dline(num1:nblc),' ')
+        !if(i.eq.0) then
+        !    num2=nblc
+        !else
+        !  num2=num1+i-2
+        !end if
 
         return
 
