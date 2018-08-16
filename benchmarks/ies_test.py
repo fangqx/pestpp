@@ -30,8 +30,12 @@ ies_vars = ["ies_par_csv", "ies_obs_csv", "ies_restart_obs_csv",
             "ies_use_approx", "ies_use_prior_scaling", "ies_reg_factor",
             "ies_lambda_mults", "ies_initial_lambda","ies_include_base","ies_subset_size"]
 
+intel = True
 if "windows" in platform.platform().lower():
-    exe_path = os.path.join("..", "..", "..", "bin", "win", "pestpp-ies.exe")
+    if intel:
+        exe_path = os.path.join("..", "..", "..", "bin", "iwin", "ipestpp-ies.exe")
+    else:
+        exe_path = os.path.join("..", "..", "..", "bin", "win", "pestpp-ies.exe")
 elif "darwin" in platform.platform().lower():
     exe_path = os.path.join("..", "..", "..", "bin", "mac", "pestpp-ies")
 else:
@@ -2454,19 +2458,23 @@ def clues_csv_ins_test():
     shutil.copytree(template_d, test_d)
 
     csv_file = os.path.join(test_d,"Project_Default_ModelA","Outputs","Reaches_Output_Full.csv")
-    onames = pyemu.pst_utils.csv_to_ins_file(csv_file,ins_filename=os.path.join(test_d,"csv.ins"))
+    df = pyemu.pst_utils.csv_to_ins_file(csv_file,ins_filename=os.path.join(test_d,"csv.ins"))
 
     bd = os.getcwd()
     os.chdir(test_d)
     #pst = pyemu.Pst.from_io_files(["reaches.csv.tpl"],[os.path.join("Project_Default_ModelA","Input","reaches.csv")],
     #                              ["csv.ins"],[os.path.join("Project_Default_ModelA","Outputs","Reaches_Output_Full.csv")])
     pst.add_observations("csv.ins",os.path.join("Project_Default_ModelA","Outputs","Reaches_Output_Full.csv"))
+    pst.observation_data.loc[df.obsnme,"obsval"] = df.obsval
     os.chdir(bd)
     print(pst.observation_data.tail())
     print(pst.obs_names[-100:])
     pst.control_data.noptmax = 0
     pst.write(os.path.join(test_d,"pest_csv.pst"))
-    pyemu.os_utils.run("pestpp pest_csv.pst",cwd=test_d)
+    pyemu.os_utils.run("{0} pest_csv.pst".format(exe_path.replace("-ies","")),cwd=test_d)
+    pst = pyemu.Pst(os.path.join(test_d,"pest_csv.pst"))
+    diff = pst.res.loc[df.obsnme,"measured"] - df.obsval
+    print(diff.max(),diff.min())
 
 
 def csv_ins_test():
@@ -2483,8 +2491,8 @@ def csv_ins_test():
         for pname in pnames:
             f.write(" ~  {0}  ~\n".format(pname))
 
-    rnames = ["r{0}".format(i) for i in range(100)]
-    cnames = ["c{0}".format(i) for i in range(100)]
+    rnames = ["r{0}".format(i) for i in range(10)]
+    cnames = ["c{0}".format(i) for i in range(10)]
     df = pd.DataFrame(index=rnames,columns=cnames)
     df.loc[:,:] = np.random.random((len(rnames),len(cnames)))
     df.to_csv(os.path.join(test_d,"obs.csv.bak"))
@@ -2511,8 +2519,8 @@ def csv_ins_test():
     assert pst.res.residual.apply(np.abs).max() < 1.0e-10,pst.res.residual.apply(np.abs).max()
 
 if __name__ == "__main__":
-    csv_ins_test()
-    # write_empty_test_matrix()
+
+
 
     # setup_suite_dir("ies_10par_xsec")
     # setup_suite_dir("ies_freyberg")
@@ -2549,5 +2557,6 @@ if __name__ == "__main__":
     # tenpar_rns_test()
     # clues_longnames_test()
     # tenpar_localize_how_test()
-    # clues_csv_ins_test()
+    #clues_csv_ins_test()
+    csv_ins_test()
     # freyberg_dist_local_invest()
