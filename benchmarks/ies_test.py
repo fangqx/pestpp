@@ -30,7 +30,7 @@ ies_vars = ["ies_par_csv", "ies_obs_csv", "ies_restart_obs_csv",
             "ies_use_approx", "ies_use_prior_scaling", "ies_reg_factor",
             "ies_lambda_mults", "ies_initial_lambda","ies_include_base","ies_subset_size"]
 
-intel = True
+intel = False
 if "windows" in platform.platform().lower():
     if intel:
         exe_path = os.path.join("..", "..", "..", "bin", "iwin", "ipestpp-ies.exe")
@@ -2057,11 +2057,11 @@ def clues_longnames_test():
     d = oset - dset
     assert len(d) == 0, d
 
-    pst.parameter_data.loc[pst.adj_par_names[10:],"partrans"] = "fixed"
-    pst.control_data.noptmax = 1
-    pst.write(os.path.join(template_d, "pest.pst"))
-    pyemu.os_utils.start_slaves(template_d, exe_path.replace("-ies", ""), "pest.pst", 5,
-                                slave_root=model_d, master_dir=test_d,port=port)
+    # pst.parameter_data.loc[pst.adj_par_names[10:],"partrans"] = "fixed"
+    # pst.control_data.noptmax = 1
+    # pst.write(os.path.join(template_d, "pest.pst"))
+    # pyemu.os_utils.start_slaves(template_d, exe_path.replace("-ies", ""), "pest.pst", 5,
+    #                             slave_root=model_d, master_dir=test_d,port=port)
 
 
 def freyberg_dist_local_test():
@@ -2445,7 +2445,7 @@ def tenpar_fixed_test3():
     assert diff == 0.0,diff
 
 
-def clues_csv_ins_test():
+def clues_csv_ins_eval():
     """clue long names tests"""
     model_d = "ies_clues"
     test_d = os.path.join(model_d, "master_csv_ins")
@@ -2555,8 +2555,8 @@ if __name__ == "__main__":
     # tenpar_restart_binary_test()
     # csv_tests()
     # tenpar_rns_test()
-    # clues_longnames_test()
+    clues_longnames_test()
     # tenpar_localize_how_test()
-    #clues_csv_ins_test()
+    clues_csv_ins_eval()
     csv_ins_test()
     # freyberg_dist_local_invest()
