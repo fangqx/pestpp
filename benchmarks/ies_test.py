@@ -41,7 +41,7 @@ elif "darwin" in platform.platform().lower():
 else:
     exe_path = os.path.join("..", "..", "..", "bin", "linux", "pestpp-ies")
 
-noptmax = 3
+noptmax = 2
 
 compare_files = ["pest.phi.actual.csv", "pest.phi.meas.csv", "pest.phi.regul.csv",
                  "pest.{0}.par.csv".format(noptmax), "pest.{0}.obs.csv".format(noptmax),
@@ -404,7 +404,7 @@ def tenpar_subset_test():
         shutil.rmtree(test_d)
     # shutil.copytree(base_d,test_d)
     pst = pyemu.Pst(os.path.join(template_d, "pest.pst"))
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
 
     # first without subset
     pst.pestpp_options = {}
@@ -755,7 +755,7 @@ def test_chenoliver():
     pyemu.helpers.run(exe_path+" pest.pst",cwd=test_d)
     
     num_reals = 30
-    noptmax = 3
+    noptmax = 2
     
 
     shutil.rmtree(test_d)
@@ -890,7 +890,7 @@ def eval_kirishima():
 
     #pst.pestpp_options["ies_initial_lambda"] = 1000.0
     #pst.pestpp_options["ies_bad_phi"] = 80000.0
-    pst.control_data.noptmax = 10
+    pst.control_data.noptmax = 2
     print("writing pst")
     pst.write(os.path.join(template_d, "pest.pst"))
     print("starting slaves")
@@ -913,7 +913,7 @@ def test_freyberg_ineq():
     pst.pestpp_options["ies_num_reals"] = 10
     pst.pestpp_options["ies_subset_size"] = 4
     pst.pestpp_options["ies_lambda_mults"] = [0.1,1.0,10.0]
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
     print("writing pst")
     pst.write(os.path.join(template_d, "pest_ineq.pst"))
     print("starting slaves")
@@ -1108,7 +1108,7 @@ def tenpar_tight_tol_test():
     shutil.copytree(template_d,test_d)
 
     
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
     #pst.pestpp_options["ies_weights_ensemble"] = "weights.csv"
     pst.pestpp_options = {}
     pst.pestpp_options["ies_num_reals"] = 10
@@ -1160,7 +1160,7 @@ def tenpar_weight_pareto():
     df.to_csv(os.path.join(template_d, "obs.csv"))
 
 
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
     pst.pestpp_options["ies_weights_ensemble"] = "weights.csv"
     pst.pestpp_options["ies_obs_en"] = "obs.csv"
     pst.pestpp_options["ies_num_reals"] = df.shape[0]
@@ -1279,7 +1279,7 @@ def tenpar_localizer_test1():
     pst.pestpp_options["ies_par_en"] = "par_local.csv"
     pst.pestpp_options["ies_obs_en"] = "obs_local.csv"
     pst.pestpp_options["ies_verbose_level"] = 3
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
     
     #pst.pestpp_options["ies_verbose_level"] = 3
     pst_name = os.path.join(template_d,"pest_local.pst")
@@ -1349,7 +1349,7 @@ def tenpar_localizer_test2():
     pst.pestpp_options["ies_par_en"] = "par_local.csv"
     pst.pestpp_options["ies_obs_en"] = "obs_local.csv"
     pst.pestpp_options["ies_include_base"] = False
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
     
     #pst.pestpp_options["ies_verbose_level"] = 3
     pst_name = os.path.join(template_d,"pest_local.pst")
@@ -1556,7 +1556,7 @@ def tenpar_localizer_test3():
     pst.pestpp_options["ies_localize_how"] = "pars"
     pst.control_data.nphistp = 10
     pst.control_data.nphinored = 10
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
 
     # pst.pestpp_options["ies_verbose_level"] = 3
     pst_name = os.path.join(template_d, "pest_local.pst")
@@ -1631,7 +1631,7 @@ def freyberg_localizer_eval1():
     pst.pestpp_options["ies_par_en"] = "par_local.csv"
     pst.pestpp_options["ies_localizer"] = "localizer.mat"
     pst.pestpp_options["ies_verbose_level"] = 3
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
     print("writing pst")
     pst.write(os.path.join(template_d, "pest_base.pst"))
     print("starting slaves")
@@ -1697,7 +1697,7 @@ def freyberg_localizer_eval2():
     pst.pestpp_options["ies_verbose_level"] = 3
     pst.control_data.nphistp = 10
     pst.control_data.nphinored = 10
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
     print("writing pst")
     pst.write(os.path.join(template_d, "pest_local.pst"))
     print("starting slaves")
@@ -1757,7 +1757,7 @@ def freyberg_localizer_test3():
     pst.pestpp_options["ies_par_en"] = "par_local.csv"
     pst.pestpp_options["ies_localizer"] = "localizer.mat"
     pst.pestpp_options["ies_verbose_level"] = 1
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
     print("writing pst")
     pst.write(os.path.join(template_d, "pest_local.pst"))
     print("starting slaves")
@@ -1850,7 +1850,7 @@ def csv_tests():
     pst.pestpp_options["parcov_filename"] = "prior.csv"
     pst.pestpp_options["ies_use_prior_scaling"] = True
     pst.pestpp_options["ies_use_approx"] = False
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
     pst_name = os.path.join(template_d, "pest_local.pst")
     pst.write(pst_name)
     pyemu.os_utils.start_slaves(template_d, exe_path, "pest_local.pst", num_slaves=11,
@@ -1963,7 +1963,7 @@ def tenpar_restart_test():
     #pst.pestpp_options["ies_num_reals"] = num_reals
     pst.pestpp_options["ies_restart_obs_en"] = "restart1.csv"
     pst.pestpp_options["ies_obs_en"] = "base.csv"
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
     pst.write(os.path.join(template_d,"pest_restart.pst"))
     pyemu.os_utils.start_slaves(template_d, exe_path, "pest_restart.pst", num_slaves=10,
                                 slave_root=model_d, master_dir=test_d, port=port)
@@ -2244,7 +2244,7 @@ def freyberg_dist_local_invest():
     pst.pestpp_options["ies_accept_phi_fac"] = 1000.0
     pst.control_data.nphinored = 20
     #pst.pestpp_options["ies_initial_lambda"] = 0.1
-    pst.control_data.noptmax = 10
+    pst.control_data.noptmax = 2
     pst.write(os.path.join(template_d, "pest_local.pst"))
     pyemu.os_utils.start_slaves(template_d, exe_path, "pest_local.pst", num_slaves=20, master_dir=test_d,
                                 slave_root=model_d, port=port)
@@ -2355,7 +2355,7 @@ def tenpar_localize_how_test():
     pst.pestpp_options["ies_obs_en"] = "obs_local.csv"
     pst.pestpp_options["ies_localize_how"] = "o"
     #pst.pestpp_options["ies_verbose_level"] = 3
-    pst.control_data.noptmax = 3
+    pst.control_data.noptmax = 2
 
     # pst.pestpp_options["ies_verbose_level"] = 3
     pst_name = os.path.join(template_d, "pest_local_o.pst")
@@ -2446,7 +2446,7 @@ def tenpar_fixed_test3():
 
 
 def clues_csv_ins_eval():
-    """clue long names tests"""
+    """clues csv ins tests"""
     model_d = "ies_clues"
     test_d = os.path.join(model_d, "master_csv_ins")
     template_d = os.path.join(model_d, "template")
