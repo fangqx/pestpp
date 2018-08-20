@@ -2443,7 +2443,7 @@ def tenpar_fixed_test3():
 if __name__ == "__main__":
     # write_empty_test_matrix()
 
-    setup_suite_dir("ies_10par_xsec")
+    # setup_suite_dir("ies_10par_xsec")
     # setup_suite_dir("ies_freyberg")
     # run_suite("ies_10par_xsec")
     # run_suite("ies_freyberg")
@@ -2464,7 +2464,7 @@ if __name__ == "__main__":
     # test_freyberg_ineq()
     # tenpar_fixed_test()
     # tenpar_fixed_test2()
-    tenpar_fixed_test3()
+    # tenpar_fixed_test3()
     # tenpar_subset_how_test()
     # tenpar_localizer_test1()
     # tenpar_localizer_test2()
